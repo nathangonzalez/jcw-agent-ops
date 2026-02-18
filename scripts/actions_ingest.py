@@ -29,11 +29,15 @@ def init_db(db_path: Path) -> sqlite3.Connection:
             raw_id INTEGER,
             source_sheet TEXT,
             title TEXT,
+            tags TEXT,
             due_date TEXT,
             status TEXT,
             status_color TEXT,
             category TEXT,
-            comments TEXT,
+            priority TEXT,
+            next_action TEXT,
+            notes TEXT,
+            source TEXT,
             created_at INTEGER,
             updated_at INTEGER,
             FOREIGN KEY(raw_id) REFERENCES raw_rows(id)
@@ -41,6 +45,17 @@ def init_db(db_path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_raw_sheet ON raw_rows(sheet_name);
         CREATE INDEX IF NOT EXISTS idx_tasks_sheet ON tasks(source_sheet);
         """
+    )
+    ensure_columns(
+        conn,
+        "tasks",
+        [
+            ("tags", "TEXT"),
+            ("priority", "TEXT"),
+            ("next_action", "TEXT"),
+            ("notes", "TEXT"),
+            ("source", "TEXT"),
+        ],
     )
     return conn
 
@@ -70,6 +85,16 @@ def status_color(status: Optional[str]) -> Optional[str]:
     return "yellow"
 
 
+def ensure_columns(conn: sqlite3.Connection, table: str, columns):
+    cur = conn.cursor()
+    cur.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cur.fetchall()}
+    for name, col_type in columns:
+        if name not in existing:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
+    conn.commit()
+
+
 def ingest_csv(conn: sqlite3.Connection, path: Path) -> int:
     sheet_name = path.stem.replace("Actions-", "")
     with path.open("r", encoding="latin-1", newline="") as f:
@@ -86,9 +111,13 @@ def ingest_csv(conn: sqlite3.Connection, path: Path) -> int:
         raw_id = cur.lastrowid
 
         title = pick_value(row, "title", "actions", "task", "item", "seller_interview_questions")
+        tags = pick_value(row, "tags")
         due_date = pick_value(row, "due_date", "next_due")
         status = pick_value(row, "status")
-        comments = pick_value(row, "comments", "notes")
+        priority = pick_value(row, "priority")
+        next_action = pick_value(row, "next_action")
+        notes = pick_value(row, "notes", "comments")
+        source = pick_value(row, "source")
 
         if title is None or str(title).strip() == "":
             continue
@@ -96,18 +125,22 @@ def ingest_csv(conn: sqlite3.Connection, path: Path) -> int:
         cur.execute(
             """
             INSERT INTO tasks
-            (raw_id, source_sheet, title, due_date, status, status_color, category, comments, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
+            (raw_id, source_sheet, title, tags, due_date, status, status_color, category, priority, next_action, notes, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
             """,
             (
                 raw_id,
                 sheet_name,
                 str(title).strip(),
+                tags,
                 due_date,
                 status,
                 status_color(status),
                 sheet_name,
-                comments,
+                priority,
+                next_action,
+                notes,
+                source,
             ),
         )
         inserted += 1

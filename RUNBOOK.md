@@ -40,6 +40,11 @@ scripts\kill_switch.ps1
 scripts\log_session.ps1
 ```
 
+**Run Tasks Web UI**:
+```powershell
+scripts\run_webui.ps1
+```
+
 ## Approval and Logging
 - Follow the approval process in `WORKFLOW.md`.
 - Use the checklist in `OPENCLAW_GUARDRAILS.md`.

@@ -82,6 +82,9 @@ class TaskServer(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._send_json({"ok": True, "db": str(DB_PATH), "time": datetime.utcnow().isoformat()})
             return
+        if path == "/api/tags":
+            self.handle_list_tags()
+            return
         if path == "/api/tasks":
             self.handle_list_tasks(parsed.query)
             return
@@ -164,6 +167,26 @@ class TaskServer(BaseHTTPRequestHandler):
         ]
         data = [row_to_dict(r, columns) for r in rows]
         self._send_json({"items": data, "count": len(data)})
+
+    def handle_list_tags(self):
+        if not DB_PATH.exists():
+            self._send_json({"error": "DB not found", "db": str(DB_PATH)}, status=404)
+            return
+
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT tags FROM tasks WHERE tags IS NOT NULL AND tags <> ''")
+        rows = cur.fetchall()
+        conn.close()
+
+        tags = set()
+        for (tag_str,) in rows:
+            for t in str(tag_str).split(","):
+                t = t.strip()
+                if t:
+                    tags.add(t)
+
+        self._send_json({"items": sorted(tags)})
 
     def handle_create_task(self, payload):
         if not DB_PATH.exists():

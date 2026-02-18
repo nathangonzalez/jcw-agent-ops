@@ -10,6 +10,7 @@ const addPanel = document.getElementById("add-panel");
 const countTotal = document.getElementById("count-total");
 const countOpen = document.getElementById("count-open");
 const countDone = document.getElementById("count-done");
+const tagOptions = document.getElementById("tag-options");
 
 const newTitle = document.getElementById("new-title");
 const newTags = document.getElementById("new-tags");
@@ -40,6 +41,18 @@ async function fetchTasks() {
   const data = await res.json();
   renderTasks(data.items || []);
   setStatus(`Loaded ${data.items.length} tasks`);
+}
+
+async function fetchTags() {
+  const res = await fetch("/api/tags");
+  const data = await res.json();
+  if (!data.items) return;
+  tagOptions.innerHTML = "";
+  data.items.forEach((t) => {
+    const opt = document.createElement("option");
+    opt.value = t;
+    tagOptions.appendChild(opt);
+  });
 }
 
 function pillClass(status) {
@@ -211,3 +224,4 @@ toggleAddBtn.addEventListener("click", () => {
 refreshBtn.addEventListener("click", fetchTasks);
 
 fetchTasks();
+fetchTags();

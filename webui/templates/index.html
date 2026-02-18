@@ -42,7 +42,7 @@
       </div>
       <div class="field">
         <label>Tag</label>
-        <input id="tag" type="text" placeholder="business, project:reno" />
+        <input id="tag" type="text" list="tag-options" placeholder="business, project:reno" />
       </div>
       <div class="field">
         <label>Status</label>
@@ -76,7 +76,7 @@
         </div>
         <div class="field">
           <label>Tags</label>
-          <input id="new-tags" type="text" placeholder="business, research" />
+          <input id="new-tags" type="text" list="tag-options" placeholder="business, research" />
         </div>
         <div class="field">
           <label>Status</label>
@@ -120,6 +120,8 @@
       </div>
       <div id="cards" class="cards"></div>
     </section>
+
+    <datalist id="tag-options"></datalist>
 
     <script src="/static/app.js"></script>
   </body>

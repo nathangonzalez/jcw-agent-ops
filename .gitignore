@@ -1,0 +1,8 @@
+# Generated data/indexes
+data/
+*.sqlite
+*.db
+*.jsonl
+*.log
+.openclaw/
+agent_outputs/

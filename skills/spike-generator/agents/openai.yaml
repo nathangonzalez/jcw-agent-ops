@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spike Generator"
+  short_description: "Turn findings into testable spikes"
+  default_prompt: "Use -generator to draft 3 spikes from the latest research."

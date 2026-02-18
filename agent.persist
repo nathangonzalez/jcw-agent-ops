@@ -1,0 +1,158 @@
+# JCW Labor Timekeeper - Session Persistence
+# Last updated: February 17, 2026
+
+## PROJECT OVERVIEW
+Construction crew time tracking PWA with voice input and payroll export.
+- Employee time entry with voice notes (OpenAI Whisper)
+- Admin approval workflow (PIN: 7707)
+- Weekly and Monthly XLSX payroll exports
+- Cloud backup to Google Cloud Storage every 5 min
+- Email notifications on submit/export (via smtp-relay.gmail.com)
+
+## PRODUCTION DEPLOYMENT
+- **Production URL:** https://labor-timekeeper-dot-jcw-2-android-estimator.uc.r.appspot.com
+- **Current version:** jcw10 (deployed 2026-02-13, TRAFFIC_SPLIT=1.00)
+- **Project:** jcw-2-android-estimator
+- **Region:** us-central1
+- **Runtime:** nodejs22 on App Engine Standard (F1)
+- **Database:** SQLite at /tmp/app.db (ephemeral, restored from GCS on cold start)
+- **Bucket:** gs://jcw-labor-timekeeper
+- **Scaling:** min_instances=1, max_instances=1
+
+## CURRENT DATA STATE (as of 2/13/2026)
+- **151 time entries** (real production data from week of 2/2 and 2/9)
+- **89 customers** (from seed + 6 added during reconciliation)
+- **8 employees:** Boban Abbate, Doug Kinsey, Jason Green, Phil Henderson, Sean Matthew, Thomas Brinson, Chris Jacobi (admin), Chris Zavesky (admin)
+- GCS backup verified: 151 entries, 89 customers, updated every ~5 min by jcw10
+
+## ACTIVE EMPLOYEES (entering time weekly)
+- Boban Abbate (hourly)
+- Doug Kinsey (hourly)
+- Jason Green (hourly)
+- Phil Henderson (hourly)
+- Sean Matthew (hourly)
+- Thomas Brinson (hourly)
+- Chris Jacobi (admin)
+- Chris Zavesky (admin)
+
+## SECRETS (Google Secret Manager)
+- SMTP_USER: nathan@jcwelton.com
+- SMTP_PASS: (configured)
+- OPENAI_API_KEY: sk-proj-... (configured)
+
+## APP ENGINE VERSIONS
+- **jcw6** — Deployed 2026-02-12 11:46 ET. Lacks email retry + backup safety guard.
+- **jcw7** — Deployed 2026-02-12 13:14 ET. Same commit as jcw6 (no code difference).
+- **jcw8** — Deployed 2026-02-13 12:33 ET. Adds email retry + backup empty-db guard + INSERT OR IGNORE merge fix.
+- **jcw10** — Current production (TRAFFIC_SPLIT=1.00). Adds hardened cold-start restore (retry + snapshot fallback + verification).
+- **~140 zombie versions** — Old timestamp/patch versions at 0% traffic. Should be cleaned up.
+
+## VERSION LINEAGE (SOURCE-OF-TRUTH)
+- **App Engine source-context.json** used to map deployed versions to git commits.
+- Tags added locally: `jcw6`, `jcw7`, `jcw8`, `jcw10` (see VERSION_LINEAGE.md).
+
+## KNOWN BUGS
+1. **Cold-start restore risk** — jcw10 adds retry + daily snapshot fallback + verification, but we should still monitor for 0-entry restores during cold starts.
+2. **Backup safety guard** — Present in jcw8+ (current prod). jcw6/jcw7 lacked it.
+3. **Email SMTP rate limiting** — Gmail SMTP (smtp-relay.gmail.com) occasionally returns 421-4.7.0 during bursts. Fixed in jcw8+ with retry logic (3 attempts, fresh connection per retry, 2s delay).
+
+## KEY FEATURES
+- Employee time entry (voice or manual)
+- Submit week / **Unsubmit week** (back to DRAFT)
+- Admin approve entries
+- Weekly XLSX export per employee
+- Monthly payroll breakdown XLSX
+- Email notification on submit-week + weekly export
+- Graceful shutdown backup (SIGTERM handler)
+
+## DEPLOY COMMANDS
+```powershell
+cd c:\Users\natha\dev\repos\jcw_payroll\labor-timekeeper
+
+# Deploy new version WITHOUT promoting (safe):
+gcloud app deploy --no-promote --version=jcwN --project=jcw-2-android-estimator --quiet
+
+# Test on staging URL:
+# https://jcwN-dot-labor-timekeeper-dot-jcw-2-android-estimator.uc.r.appspot.com/api/health
+
+# Promote via safe-promote.ps1:
+powershell -File safe-promote.ps1 <old_version>
+```
+
+## STARTUP SEQUENCE (server.js)
+1. `await loadSecrets()` — Load SMTP_USER, SMTP_PASS, OPENAI_API_KEY from Secret Manager
+2. `restoreFromCloud(DB_PATH)` — Download gs://jcw-labor-timekeeper/app.db to /tmp/app.db (retry 3x)
+3. `restoreFromDailySnapshot(DB_PATH)` — Fallback if main restore fails or 0 entries
+4. `const db = openDb()` — Open SQLite, set WAL mode, run db.js migrate
+5. `scheduleBackups(DB_PATH)` — Every 5 min backup to GCS
+6. `scheduleDailySnapshots(DB_PATH)` — Daily snapshot
+7. `await snapshotDailyToCloud(DB_PATH)` — Immediate snapshot at boot
+8. `await migrate(db)` — lib/migrate.js (ensureColumn, seed customers if empty)
+9. `ensureEmployees(db)` — Insert default employees if missing
+10. `app.listen(port)` — Start Express server
+
+## KEY FILES
+- **server.js** — Express API server, main entry point (~1000 lines)
+- **public/app.html** — Employee time entry UI (SPA)
+- **public/admin.html** — Admin dashboard (PIN protected)
+- **lib/storage.js** — GCS backup/restore, safety guard, daily snapshots
+- **lib/db.js** — SQLite schema, openDb(), migrations
+- **lib/migrate.js** — Column migrations, customer seeding
+- **lib/email.js** — SMTP email with retry logic
+- **lib/export/generateWeekly.js** — Weekly per-employee XLSX
+- **lib/export/generateMonthly.js** — Monthly payroll breakdown XLSX
+- **lib/time.js** — Payroll week/month calculations
+- **lib/bootstrap.js** — Default employee seeding
+- **lib/secrets.js** — Google Secret Manager integration
+- **app.yaml** — App Engine config
+
+## API ENDPOINTS (key ones)
+- POST /api/time-entries — Create/update time entry
+- DELETE /api/time-entries/:id — Delete DRAFT entry
+- POST /api/submit-week — Submit week (DRAFT → SUBMITTED + email notification)
+- POST /api/unsubmit-week — Unsubmit week (SUBMITTED → DRAFT)
+- GET /api/approvals?week_start=YYYY-MM-DD — Get pending entries
+- POST /api/approve — Approve entries {ids: [...]}
+- GET /api/admin/generate-week?week_start=YYYY-MM-DD — Generate weekly exports
+- GET /api/admin/generate-month?month=YYYY-MM — Generate monthly export
+- GET /api/export/monthly?month=YYYY-MM — Download monthly XLSX
+- POST /api/admin/import-entries — Bulk import entries
+- POST /api/admin/restore-latest-merge — Restore from GCS (merge into running DB)
+- GET /api/health — Health check with DB stats
+
+## DATA MODEL
+- employees (id, name, default_bill_rate, default_pay_rate, is_admin, aliases_json, role, created_at)
+- customers (id, name, address, created_at)
+- rate_overrides (employee_id, customer_id, bill_rate)
+- time_entries (id, employee_id, customer_id, work_date, hours, start_time, end_time, notes, status, entry_type, created_at, updated_at)
+- weekly_comments (employee_id, week_start, comment)
+- Status values: DRAFT, SUBMITTED, APPROVED
+
+## RECONCILIATION (2/4 week)
+- Manual XLS timesheets in /2_4/ folder for verification
+- 6 employees: Boban Abbate, Doug Kinsey, Jason Green, Phil Henderson, Sean Matthew, Thomas Brinson
+- Reconciliation done: system data matches manual timesheets
+- See RECONCILE_2_4.md for details
+
+## PENDING WORK (from user request 2/13)
+1. Compare week 2/4 actuals with system exports and adjust
+2. Add employee name to exported timesheets
+3. Format timesheets for single-page print
+4. Stack all weekly timesheets in single export (current week on top, separated by blank lines)
+5. Break into user stories and sprints
+6. Verify "Muncey" against manual copy
+
+## NOTES
+- /tmp is ephemeral on App Engine — database auto-restores from Cloud Storage on cold start
+- Backup runs every 5 minutes in production
+- Safety guard prevents uploading empty DB (in jcw8+; current prod)
+- Graceful shutdown (SIGTERM) does final backup before instance dies
+- Unsubmit feature exists: POST /api/unsubmit-week
+- See OPS_HARDENING_PLAN.md for the safe-change checklist and roadmap
+
+### Approvals
+- 2026-02-17 13:42:59 | Created Google Custom Search API key for OpenClaw (project: jcw-2-android-estimator)
+- 2026-02-17 15:36:35 | Simulated approval flow test (no external actions executed)
+2026-02-18 08:41:51 | APPROVAL: enable web.search for research digest (fetch disabled)
+2026-02-18 08:48:34 | APPROVAL: enable web.fetch for research digests
+2026-02-18 09:30:44 | SESSION: created skills research-sme, spike-generator, evidence-grader; added source quality rubrics; validated skills

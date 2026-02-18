@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research SME"
+  short_description: "PhD-level research digests and spikes"
+  default_prompt: "Use -sme to produce a weekly digest with citations and spikes."

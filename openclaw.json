@@ -1,0 +1,85 @@
+// Template config for OpenClaw Gateway.
+// Copy to %USERPROFILE%\.openclaw\openclaw.json (JSON5 allowed).
+{
+  gateway: { mode: "local" },
+  agents: {
+    defaults: {
+      workspace: "C:\\Users\\natha\\dev\\repos\\agent-ops",
+      // Docker not available; disable sandbox.
+      sandbox: {
+        mode: "off",
+        scope: "agent",
+        workspaceAccess: "rw",
+        sessionToolsVisibility: "all",
+      },
+    },
+    list: [
+      {
+        id: "orchestrator",
+        default: true,
+        workspace: "C:\\Users\\natha\\dev\\repos\\agent-ops",
+        subagents: { allowAgents: ["research", "coder", "qa", "release", "analyst", "finance", "scout"] },
+        tools: { allow: ["group:sessions", "group:memory"] },
+      },
+      {
+        id: "research",
+        workspace: "C:\\Users\\natha\\dev\\repos\\agent-ops\\research",
+        sandbox: {
+          mode: "off",
+          scope: "agent",
+          workspaceAccess: "none",
+          sessionToolsVisibility: "all",
+        },
+        tools: { allow: ["group:web", "group:sessions", "group:memory"] },
+      },
+      {
+        id: "coder",
+        workspace: "C:\\Users\\natha\\dev\\repos\\jcw_payroll",
+        tools: { profile: "coding" },
+      },
+      {
+        id: "qa",
+        workspace: "C:\\Users\\natha\\dev\\repos\\jcw_payroll",
+        sandbox: {
+          mode: "off",
+          scope: "agent",
+          workspaceAccess: "ro",
+          sessionToolsVisibility: "all",
+        },
+        tools: { allow: ["group:fs", "group:runtime", "group:sessions", "group:memory"] },
+      },
+      {
+        id: "release",
+        workspace: "C:\\Users\\natha\\dev\\repos\\agent-ops",
+        tools: {
+          allow: ["group:messaging", "group:web", "group:ui", "group:sessions"],
+          deny: ["group:fs", "group:runtime"],
+        },
+      },
+      {
+        id: "analyst",
+        workspace: "C:\\Users\\natha\\dev\\repos\\agent-ops",
+        tools: { allow: ["group:sessions", "group:memory"] },
+      },
+      {
+        id: "finance",
+        workspace: "C:\\Users\\natha\\dev\\repos\\agent-ops",
+        tools: { allow: ["group:sessions", "group:memory"] },
+      },
+      {
+        id: "scout",
+        workspace: "C:\\Users\\natha\\dev\\repos\\jcw_payroll",
+        tools: { allow: ["group:sessions", "group:memory"] },
+      },
+    ],
+  },
+  tools: {
+    elevated: { enabled: false },
+    web: {
+      search: { enabled: true, apiKey: "BRAVE_API_KEY" },
+      fetch: { enabled: true },
+    },
+    agentToAgent: { enabled: true, allow: ["orchestrator", "research", "coder", "qa", "release", "analyst", "finance", "scout"] },
+    sessions: { visibility: "all" },
+  },
+}

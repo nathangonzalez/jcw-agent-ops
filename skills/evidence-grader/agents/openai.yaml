@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evidence Grader"
+  short_description: "Score source quality and relevance"
+  default_prompt: "Use -grader to score these sources and flag weak evidence."

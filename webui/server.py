@@ -200,7 +200,7 @@ class TaskServer(BaseHTTPRequestHandler):
         fields = {
             "title": title,
             "tags": (payload.get("tags") or "").strip(),
-            "status": (payload.get("status") or "Not Started").strip(),
+            "status": (payload.get("status") or "In-Progress").strip(),
             "due_date": (payload.get("due_date") or "").strip(),
             "priority": (payload.get("priority") or "").strip(),
             "next_action": (payload.get("next_action") or "").strip(),

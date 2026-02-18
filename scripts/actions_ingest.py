@@ -85,7 +85,7 @@ def ingest_csv(conn: sqlite3.Connection, path: Path) -> int:
         )
         raw_id = cur.lastrowid
 
-        title = pick_value(row, "actions", "task", "item", "seller_interview_questions")
+        title = pick_value(row, "title", "actions", "task", "item", "seller_interview_questions")
         due_date = pick_value(row, "due_date", "next_due")
         status = pick_value(row, "status")
         comments = pick_value(row, "comments", "notes")
@@ -130,19 +130,24 @@ def main():
     input_dir = Path(args.input_dir)
     db_path = Path(args.db)
 
-    allow = None
     if args.sheets:
         allow = {s.strip() for s in args.sheets.split(",") if s.strip()}
+        csv_files = [
+            p
+            for p in sorted(input_dir.glob("Actions-*.csv"))
+            if p.stem.replace("Actions-", "") in allow
+        ]
+    else:
+        master = input_dir / "Actions-All_Tasks.csv"
+        if master.exists():
+            csv_files = [master]
+        else:
+            csv_files = sorted(input_dir.glob("Actions-*.csv"))
 
     conn = init_db(db_path)
-
-    csv_files = sorted(input_dir.glob("Actions-*.csv"))
     total = 0
     used = 0
     for csv_path in csv_files:
-        sheet_name = csv_path.stem.replace("Actions-", "")
-        if allow and sheet_name not in allow:
-            continue
         used += 1
         total += ingest_csv(conn, csv_path)
 

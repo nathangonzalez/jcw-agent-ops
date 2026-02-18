@@ -6,3 +6,4 @@ data/
 *.log
 .openclaw/
 agent_outputs/
+__pycache__/

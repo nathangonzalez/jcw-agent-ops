@@ -157,3 +157,4 @@ powershell -File safe-promote.ps1 <old_version>
 2026-02-18 08:48:34 | APPROVAL: enable web.fetch for research digests
 2026-02-18 09:30:44 | SESSION: created skills research-sme, spike-generator, evidence-grader; added source quality rubrics; validated skills
 2026-02-18 10:09:47 | SESSION: exported Actions.xlsx to CSV; added actions_export.ps1 and actions_ingest.py; built actions.sqlite with 7 task sheets
+2026-02-18 10:21:00 | SESSION: created All Tasks sheet in Actions.xlsx; added actions_build_master.ps1/bat; updated actions_ingest to prefer All_Tasks; exported CSV and re-ingested 578 tasks

@@ -1,5 +1,7 @@
-ï»¿# Research Backlog (Spikes)
+# Research Backlog (Spikes)
 
+## High Priority (JCW Ops)
+1. Stucco Alternatives + Slurry/Bonding Options (tile roof) — see esearch/spikes/2026-02-18-stucco-alternatives.md`n
 ## Focus Areas
 - Agent orchestration patterns (planner-worker, critic, debate, A2A routing)
 - Memory architectures (short-term, long-term, vector, tool memory)
@@ -106,3 +108,4 @@
 
 ---
 ```
+

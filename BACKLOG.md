@@ -22,6 +22,7 @@
 5. Ledger taxonomy v1 — Acceptance: categories + subcategories cover 95% of known transactions.
 6. Manual review queue spec — Acceptance: review states, decisions, and outputs documented.
 7. Cash flow phase mapping draft — Acceptance: phase to cost and phase to inflow mapping documented.
+8. High-priority spike: stucco alternatives + slurry/bonding options — Acceptance: decision memo with options, pros/cons, and vendor shortlist.
 
 ---
 
@@ -52,3 +53,4 @@
 3. Advanced, filterable audit and compliance reports with export options.
 4. Built-in anomaly detection to catch outliers and potential fraud.
 5. Role-based access control with full visibility into access and changes.
+

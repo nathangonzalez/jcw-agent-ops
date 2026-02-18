@@ -1,0 +1,121 @@
+name: Monorepo CI/CD (Template)
+
+on:
+  push:
+    branches: [ main, 'release/**', 'feature/**', 'hotfix/**' ]
+    paths:
+      - 'services/**'
+      - 'packages/**'
+      - '.github/workflows/ci-cd-monorepo.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'services/**'
+      - 'packages/**'
+      - '.github/workflows/ci-cd-monorepo.yml'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changes: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            payroll: services/payroll/**
+            estimating: services/estimating/**
+            financials: services/financials/**
+            suite-shell: services/suite-shell/**
+
+  build-test-deploy:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.changes != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - id: payroll
+            path: services/payroll
+            app_yaml: services/payroll/app.yaml
+            app_service: payroll
+          - id: estimating
+            path: services/estimating
+            app_yaml: services/estimating/app.yaml
+            app_service: estimating
+          - id: financials
+            path: services/financials
+            app_yaml: services/financials/app.yaml
+            app_service: financials
+          - id: suite-shell
+            path: services/suite-shell
+            app_yaml: services/suite-shell/app.yaml
+            app_service: suite-shell
+      fail-fast: false
+    if: ${{ fromJson(needs.detect-changes.outputs.changes)[matrix.service.id] == true }}
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_SA_KEY_B64: ${{ secrets.GCP_SA_KEY_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write GCP key from base64 secret
+        run: |
+          printf '%s' "$GCP_SA_KEY_B64" | tr -d '\r' | base64 --decode > gcloud-key.json
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Authenticate gcloud
+        run: gcloud auth activate-service-account --key-file=gcloud-key.json
+
+      - name: Build and test
+        run: |
+          if [ -f "${{ matrix.service.path }}/ci.sh" ]; then
+            cd "${{ matrix.service.path }}" && ./ci.sh
+          else
+            echo "No ci.sh found for ${{ matrix.service.id }} (skipping)"
+          fi
+
+      - name: Set patch version
+        id: set_version
+        run: echo "version=p${GITHUB_RUN_ID}" >> $GITHUB_OUTPUT
+
+      - name: Deploy App Engine patch (no promote)
+        run: |
+          gcloud app deploy "${{ matrix.service.app_yaml }}" \
+            --quiet --no-promote --version "${{ steps.set_version.outputs.version }}"
+
+  promote:
+    needs: build-test-deploy
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      matrix:
+        service: [payroll, estimating, financials, suite-shell]
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_SA_KEY_B64: ${{ secrets.GCP_SA_KEY_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write GCP key from base64 secret
+        run: |
+          printf '%s' "$GCP_SA_KEY_B64" | tr -d '\r' | base64 --decode > gcloud-key.json
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Authenticate gcloud
+        run: gcloud auth activate-service-account --key-file=gcloud-key.json
+
+      - name: Promote patch to prod
+        run: |
+          gcloud app services set-traffic "${{ matrix.service }}" --splits "p${GITHUB_RUN_ID}=1"

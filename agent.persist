@@ -160,3 +160,4 @@ powershell -File safe-promote.ps1 <old_version>
 2026-02-18 10:21:00 | SESSION: created All Tasks sheet in Actions.xlsx; added actions_build_master.ps1/bat; updated actions_ingest to prefer All_Tasks; exported CSV and re-ingested 578 tasks
 2026-02-18 10:33:05 | SESSION: added All Tasks web UI (webui/server.py + static assets + run_webui scripts); updated actions_ingest schema (tags/priority/next_action/notes/source)
 2026-02-18 11:07:45 | SESSION: added Google Gmail/Calendar draft scripts; added integrations/google/SETUP.md; updated .gitignore and runbook
+2026-02-18 11:35:00 | SESSION: added Excel write-back (actions_export_db.py + actions_writeback.ps1/bat) and web UI draft+sync controls (email/calendar modal, sync Excel endpoint)

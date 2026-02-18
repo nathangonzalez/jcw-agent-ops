@@ -7,6 +7,8 @@ No external dependencies. Uses Python stdlib only.
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -16,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR.parent / "data" / "actions.sqlite"
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+DRAFTS_DIR = BASE_DIR.parent / "data" / "drafts"
 
 
 def row_to_dict(row, columns):
@@ -95,6 +98,18 @@ class TaskServer(BaseHTTPRequestHandler):
         if parsed.path == "/api/tasks":
             payload = self._read_json() or {}
             self.handle_create_task(payload)
+            return
+        if parsed.path == "/api/drafts/email":
+            payload = self._read_json() or {}
+            self.handle_draft_email(payload)
+            return
+        if parsed.path == "/api/drafts/event":
+            payload = self._read_json() or {}
+            self.handle_draft_event(payload)
+            return
+        if parsed.path == "/api/writeback":
+            payload = self._read_json() or {}
+            self.handle_writeback(payload)
             return
         self._send_text("Not found", status=404)
 
@@ -269,6 +284,173 @@ class TaskServer(BaseHTTPRequestHandler):
         conn.close()
 
         self._send_json({"ok": True, "id": task_id})
+
+    def handle_draft_email(self, payload):
+        title = (payload.get("subject") or "").strip()
+        to = (payload.get("to") or "").strip()
+        body = (payload.get("body") or "").strip()
+        commit = bool(payload.get("commit"))
+        approve = (payload.get("approve") or "").strip()
+
+        if not to or not title or not body:
+            self._send_json({"error": "to, subject, and body are required"}, status=400)
+            return
+
+        DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        out_path = DRAFTS_DIR / f"email-draft-{stamp}.eml"
+
+        if commit and approve != "APPROVE":
+            self._send_json({"error": "approval required", "hint": "Type APPROVE to commit."}, status=400)
+            return
+
+        result = {"to": to, "subject": title, "body": body, "draft_file": str(out_path)}
+
+        if not commit:
+            out_path.write_text(f"To: {to}\nSubject: {title}\n\n{body}")
+            self._send_json({"ok": True, "mode": "dry-run", "draft": result})
+            return
+
+        script = BASE_DIR.parent / "scripts" / "google_gmail_draft.py"
+        cmd = [
+            sys.executable,
+            str(script),
+            "--to",
+            to,
+            "--subject",
+            title,
+            "--body",
+            body,
+            "--out",
+            str(out_path),
+            "--commit",
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
+            return
+
+        if proc.returncode != 0:
+            self._send_json({"error": "draft failed", "stderr": proc.stderr}, status=500)
+            return
+
+        self._send_json({"ok": True, "mode": "commit", "draft": result, "stdout": proc.stdout})
+
+    def handle_draft_event(self, payload):
+        title = (payload.get("title") or "").strip()
+        start = (payload.get("start") or "").strip()
+        end = (payload.get("end") or "").strip()
+        timezone = (payload.get("timezone") or "America/Denver").strip()
+        description = (payload.get("description") or "").strip()
+        location = (payload.get("location") or "").strip()
+        attendees = (payload.get("attendees") or "").strip()
+        calendar_name = (payload.get("calendar_name") or "JCW Drafts").strip()
+        commit = bool(payload.get("commit"))
+        approve = (payload.get("approve") or "").strip()
+
+        if not title or not start or not end:
+            self._send_json({"error": "title, start, and end are required"}, status=400)
+            return
+
+        DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        out_path = DRAFTS_DIR / f"event-draft-{stamp}.json"
+
+        if commit and approve != "APPROVE":
+            self._send_json({"error": "approval required", "hint": "Type APPROVE to commit."}, status=400)
+            return
+
+        event = {
+            "summary": title,
+            "description": description,
+            "location": location,
+            "start": {"dateTime": start, "timeZone": timezone},
+            "end": {"dateTime": end, "timeZone": timezone},
+        }
+        if attendees:
+            event["attendees"] = [{"email": e.strip()} for e in attendees.split(",") if e.strip()]
+
+        if not commit:
+            out_path.write_text(json.dumps(event, indent=2))
+            self._send_json({"ok": True, "mode": "dry-run", "event": event, "draft_file": str(out_path)})
+            return
+
+        script = BASE_DIR.parent / "scripts" / "google_calendar_draft.py"
+        cmd = [
+            sys.executable,
+            str(script),
+            "--title",
+            title,
+            "--start",
+            start,
+            "--end",
+            end,
+            "--timezone",
+            timezone,
+            "--description",
+            description,
+            "--location",
+            location,
+            "--attendees",
+            attendees,
+            "--calendar-name",
+            calendar_name,
+            "--out",
+            str(out_path),
+            "--commit",
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
+            return
+
+        if proc.returncode != 0:
+            self._send_json({"error": "event draft failed", "stderr": proc.stderr}, status=500)
+            return
+
+        self._send_json({"ok": True, "mode": "commit", "event": event, "draft_file": str(out_path), "stdout": proc.stdout})
+
+    def handle_writeback(self, payload):
+        approve = (payload.get("approve") or "").strip()
+        if approve != "APPROVE":
+            self._send_json({"error": "approval required", "hint": "Type APPROVE to sync back to Excel."}, status=400)
+            return
+
+        input_path = (payload.get("input_path") or os.environ.get("AGENT_OPS_ACTIONS_XLSX") or r"C:\Users\natha\Downloads\Actions.xlsx").strip()
+        db_path = (payload.get("db_path") or str(DB_PATH)).strip()
+        sheet_name = (payload.get("sheet_name") or "All Tasks").strip()
+
+        script = BASE_DIR.parent / "scripts" / "actions_writeback.ps1"
+        if not script.exists():
+            self._send_json({"error": "writeback script missing", "script": str(script)}, status=500)
+            return
+
+        cmd = [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            "-InputPath",
+            input_path,
+            "-DbPath",
+            db_path,
+            "-SheetName",
+            sheet_name,
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
+            return
+
+        if proc.returncode != 0:
+            self._send_json({"error": "writeback failed", "stderr": proc.stderr}, status=500)
+            return
+
+        self._send_json({"ok": True, "stdout": proc.stdout.strip()})
 
 
 def main():

@@ -6,6 +6,7 @@ const statusFilterEl = document.getElementById("status");
 const limitEl = document.getElementById("limit");
 const refreshBtn = document.getElementById("refresh");
 const toggleAddBtn = document.getElementById("toggle-add");
+const syncExcelBtn = document.getElementById("sync-excel");
 const addPanel = document.getElementById("add-panel");
 const countTotal = document.getElementById("count-total");
 const countOpen = document.getElementById("count-open");
@@ -21,8 +22,120 @@ const newNext = document.getElementById("new-next");
 const newNotes = document.getElementById("new-notes");
 const saveNew = document.getElementById("save-new");
 
+const draftModal = document.getElementById("draft-modal");
+const draftClose = document.getElementById("draft-close");
+const tabEmail = document.getElementById("tab-email");
+const tabEvent = document.getElementById("tab-event");
+const emailPanel = document.getElementById("draft-email");
+const eventPanel = document.getElementById("draft-event");
+const draftOutput = document.getElementById("draft-output");
+
+const emailTo = document.getElementById("email-to");
+const emailSubject = document.getElementById("email-subject");
+const emailBody = document.getElementById("email-body");
+const emailApprove = document.getElementById("email-approve");
+const emailPreview = document.getElementById("email-preview");
+const emailCommit = document.getElementById("email-commit");
+const emailStatus = document.getElementById("email-status");
+
+const eventTitle = document.getElementById("event-title");
+const eventStart = document.getElementById("event-start");
+const eventEnd = document.getElementById("event-end");
+const eventTimezone = document.getElementById("event-timezone");
+const eventCalendar = document.getElementById("event-calendar");
+const eventLocation = document.getElementById("event-location");
+const eventDescription = document.getElementById("event-description");
+const eventAttendees = document.getElementById("event-attendees");
+const eventApprove = document.getElementById("event-approve");
+const eventPreview = document.getElementById("event-preview");
+const eventCommit = document.getElementById("event-commit");
+const eventStatus = document.getElementById("event-status");
+
+let activeTask = null;
+
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function setDraftOutput(text) {
+  draftOutput.textContent = text;
+}
+
+function setDraftMode(mode) {
+  if (mode === "email") {
+    tabEmail.classList.add("active");
+    tabEvent.classList.remove("active");
+    emailPanel.classList.remove("hidden");
+    eventPanel.classList.add("hidden");
+    emailStatus.textContent = "Drafts only. No emails sent.";
+  } else {
+    tabEvent.classList.add("active");
+    tabEmail.classList.remove("active");
+    eventPanel.classList.remove("hidden");
+    emailPanel.classList.add("hidden");
+    eventStatus.textContent = "Drafts only. No invites sent.";
+  }
+}
+
+function openDraftModal(mode, task) {
+  activeTask = task;
+  draftModal.classList.remove("hidden");
+  setDraftMode(mode);
+
+  const lines = [];
+  if (task.title) lines.push(task.title);
+  if (task.next_action) {
+    lines.push("", "Next Action:", task.next_action);
+  }
+  if (task.notes) {
+    lines.push("", "Notes:", task.notes);
+  }
+  if (task.due_date) {
+    lines.push("", `Due: ${task.due_date}`);
+  }
+  const baseBody = lines.join("\n").trim();
+
+  emailSubject.value = task.title || "";
+  emailBody.value = baseBody;
+
+  eventTitle.value = task.title || "";
+  eventDescription.value = baseBody;
+  if (task.due_date) {
+    eventStart.value = `${task.due_date}T09:00`;
+    eventEnd.value = `${task.due_date}T09:30`;
+  }
+  setDraftOutput("Awaiting action.");
+}
+
+function closeDraftModal() {
+  draftModal.classList.add("hidden");
+  activeTask = null;
+}
+
+function normalizeDateTime(value) {
+  if (!value) return "";
+  return value.length === 16 ? `${value}:00` : value;
+}
+
+async function postJson(url, payload) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "Request failed");
+  }
+  return data;
+}
+
+function requireApproval(inputEl) {
+  if (inputEl.value.trim() !== "APPROVE") {
+    setDraftOutput("Type APPROVE to commit.");
+    return false;
+  }
+  return true;
 }
 
 function buildQuery() {
@@ -168,13 +281,30 @@ function renderTasks(items) {
     editor.appendChild(saveBtn);
 
     const toggleBtn = document.createElement("button");
-    toggleBtn.className = "btn ghost";
+    toggleBtn.className = "btn ghost small";
     toggleBtn.textContent = "Edit";
     toggleBtn.addEventListener("click", () => {
       editor.classList.toggle("hidden");
     });
 
-    card.appendChild(toggleBtn);
+    const actions = document.createElement("div");
+    actions.className = "card-actions";
+
+    const emailBtn = document.createElement("button");
+    emailBtn.className = "btn ghost small";
+    emailBtn.textContent = "Draft Email";
+    emailBtn.addEventListener("click", () => openDraftModal("email", item));
+
+    const eventBtn = document.createElement("button");
+    eventBtn.className = "btn ghost small";
+    eventBtn.textContent = "Draft Event";
+    eventBtn.addEventListener("click", () => openDraftModal("event", item));
+
+    actions.appendChild(toggleBtn);
+    actions.appendChild(emailBtn);
+    actions.appendChild(eventBtn);
+
+    card.appendChild(actions);
     card.appendChild(editor);
 
     cardsEl.appendChild(card);
@@ -222,6 +352,96 @@ toggleAddBtn.addEventListener("click", () => {
 });
 
 refreshBtn.addEventListener("click", fetchTasks);
+
+syncExcelBtn.addEventListener("click", async () => {
+  const approve = window.prompt("Type APPROVE to sync changes back to Excel:");
+  if (!approve) return;
+  try {
+    setStatus("Syncing to Excel...");
+    const data = await postJson("/api/writeback", { approve });
+    setStatus(data.stdout || "Sync complete.");
+  } catch (err) {
+    setStatus(`Sync failed: ${err.message}`);
+  }
+});
+
+tabEmail.addEventListener("click", () => setDraftMode("email"));
+tabEvent.addEventListener("click", () => setDraftMode("event"));
+draftClose.addEventListener("click", closeDraftModal);
+
+emailPreview.addEventListener("click", async () => {
+  try {
+    setDraftOutput("Generating preview...");
+    const data = await postJson("/api/drafts/email", {
+      to: emailTo.value,
+      subject: emailSubject.value,
+      body: emailBody.value,
+      commit: false,
+    });
+    setDraftOutput(JSON.stringify(data, null, 2));
+  } catch (err) {
+    setDraftOutput(`Preview failed: ${err.message}`);
+  }
+});
+
+emailCommit.addEventListener("click", async () => {
+  if (!requireApproval(emailApprove)) return;
+  try {
+    setDraftOutput("Creating Gmail draft...");
+    const data = await postJson("/api/drafts/email", {
+      to: emailTo.value,
+      subject: emailSubject.value,
+      body: emailBody.value,
+      commit: true,
+      approve: emailApprove.value.trim(),
+    });
+    setDraftOutput(JSON.stringify(data, null, 2));
+  } catch (err) {
+    setDraftOutput(`Draft failed: ${err.message}`);
+  }
+});
+
+eventPreview.addEventListener("click", async () => {
+  try {
+    setDraftOutput("Generating preview...");
+    const data = await postJson("/api/drafts/event", {
+      title: eventTitle.value,
+      start: normalizeDateTime(eventStart.value),
+      end: normalizeDateTime(eventEnd.value),
+      timezone: eventTimezone.value,
+      description: eventDescription.value,
+      location: eventLocation.value,
+      attendees: eventAttendees.value,
+      calendar_name: eventCalendar.value,
+      commit: false,
+    });
+    setDraftOutput(JSON.stringify(data, null, 2));
+  } catch (err) {
+    setDraftOutput(`Preview failed: ${err.message}`);
+  }
+});
+
+eventCommit.addEventListener("click", async () => {
+  if (!requireApproval(eventApprove)) return;
+  try {
+    setDraftOutput("Creating calendar draft...");
+    const data = await postJson("/api/drafts/event", {
+      title: eventTitle.value,
+      start: normalizeDateTime(eventStart.value),
+      end: normalizeDateTime(eventEnd.value),
+      timezone: eventTimezone.value,
+      description: eventDescription.value,
+      location: eventLocation.value,
+      attendees: eventAttendees.value,
+      calendar_name: eventCalendar.value,
+      commit: true,
+      approve: eventApprove.value.trim(),
+    });
+    setDraftOutput(JSON.stringify(data, null, 2));
+  } catch (err) {
+    setDraftOutput(`Draft failed: ${err.message}`);
+  }
+});
 
 fetchTasks();
 fetchTags();

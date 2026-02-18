@@ -63,6 +63,7 @@
       </div>
       <div class="actions">
         <button id="refresh" class="btn">Refresh</button>
+        <button id="sync-excel" class="btn ghost">Sync Excel</button>
         <button id="toggle-add" class="btn ghost">New Task</button>
       </div>
     </section>
@@ -122,6 +123,97 @@
     </section>
 
     <datalist id="tag-options"></datalist>
+
+    <div id="draft-modal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 id="draft-heading">Draft From Task</h2>
+          <button id="draft-close" class="btn ghost small">Close</button>
+        </div>
+        <div class="tabs">
+          <button id="tab-email" class="tab active">Email Draft</button>
+          <button id="tab-event" class="tab">Calendar Draft</button>
+        </div>
+
+        <div id="draft-email" class="modal-section">
+          <div class="grid">
+            <div class="field span-2">
+              <label>To</label>
+              <input id="email-to" type="text" placeholder="name@company.com" />
+            </div>
+            <div class="field span-2">
+              <label>Subject</label>
+              <input id="email-subject" type="text" />
+            </div>
+            <div class="field span-2">
+              <label>Body</label>
+              <textarea id="email-body" rows="6"></textarea>
+            </div>
+            <div class="field">
+              <label>Approve (type APPROVE to commit)</label>
+              <input id="email-approve" type="text" placeholder="APPROVE" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <div id="email-status" class="statusline">Drafts only. No emails sent.</div>
+            <div class="actions">
+              <button id="email-preview" class="btn ghost">Preview</button>
+              <button id="email-commit" class="btn">Create Draft</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="draft-event" class="modal-section hidden">
+          <div class="grid">
+            <div class="field span-2">
+              <label>Title</label>
+              <input id="event-title" type="text" />
+            </div>
+            <div class="field">
+              <label>Start (local)</label>
+              <input id="event-start" type="datetime-local" />
+            </div>
+            <div class="field">
+              <label>End (local)</label>
+              <input id="event-end" type="datetime-local" />
+            </div>
+            <div class="field">
+              <label>Timezone</label>
+              <input id="event-timezone" type="text" value="America/Denver" />
+            </div>
+            <div class="field">
+              <label>Calendar Name</label>
+              <input id="event-calendar" type="text" value="JCW Drafts" />
+            </div>
+            <div class="field span-2">
+              <label>Location</label>
+              <input id="event-location" type="text" />
+            </div>
+            <div class="field span-2">
+              <label>Description</label>
+              <textarea id="event-description" rows="5"></textarea>
+            </div>
+            <div class="field span-2">
+              <label>Attendees (comma-separated)</label>
+              <input id="event-attendees" type="text" />
+            </div>
+            <div class="field">
+              <label>Approve (type APPROVE to commit)</label>
+              <input id="event-approve" type="text" placeholder="APPROVE" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <div id="event-status" class="statusline">Drafts only. No invites sent.</div>
+            <div class="actions">
+              <button id="event-preview" class="btn ghost">Preview</button>
+              <button id="event-commit" class="btn">Create Draft</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="draft-output" id="draft-output">Awaiting action.</div>
+      </div>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>

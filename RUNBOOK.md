@@ -45,6 +45,11 @@ scripts\log_session.ps1
 scripts\run_webui.ps1
 ```
 
+**Sync Tasks back to Excel (All Tasks)**:
+```powershell
+scripts\actions_writeback.ps1 -InputPath "C:\Users\natha\Downloads\Actions.xlsx"
+```
+
 **Gmail Draft (dry-run)**:
 ```powershell
 python scripts/google_gmail_draft.py --to "you@example.com" --subject "Draft" --body "Hello"
@@ -54,6 +59,10 @@ python scripts/google_gmail_draft.py --to "you@example.com" --subject "Draft" --
 ```powershell
 python scripts/google_calendar_draft.py --title "Site visit" --start "2026-02-20T09:00:00" --end "2026-02-20T10:00:00"
 ```
+
+**Web UI Draft + Sync Controls**:
+- Task cards include “Draft Email” and “Draft Event” buttons (drafts only).
+- “Sync Excel” requires typing `APPROVE` and writes DB updates to `All Tasks`.
 
 ## Approval and Logging
 - Follow the approval process in `WORKFLOW.md`.

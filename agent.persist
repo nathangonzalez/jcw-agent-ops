@@ -167,3 +167,4 @@ powershell -File safe-promote.ps1 <old_version>
 2026-02-18 14:58:30 | SESSION: re-ran run_lanes.ps1 with gateway reachable; outputs in agent_outputs\\lanes_20260218-145533
 2026-02-18 14:59:10 | SESSION: created tasks/SPRINT_BOARD.md with lane summaries and ready queue
 2026-02-18 15:06:40 | SESSION: created infra/product/finance/inventory docs and updated sprint board; copied SPRINT_BOARD.md to repo root
+2026-02-18 15:20:20 | SESSION: added Playwright UAT demo (playwright.config.js, tests/uat-demo.spec.js) and RUNBOOK steps

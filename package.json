@@ -1,0 +1,13 @@
+{
+  "name": "jcw-agent-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent ops tooling and UAT demos",
+  "scripts": {
+    "uat:install": "npx playwright install",
+    "uat:demo": "npx playwright test tests/uat-demo.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}

@@ -45,6 +45,14 @@ scripts\log_session.ps1
 scripts\run_webui.ps1
 ```
 
+**UAT Demo Video (Playwright)**:
+```powershell
+npm install
+npm run uat:install
+npm run uat:demo
+```
+Video + trace will appear under `test-results/` for the demo run.
+
 **Sync Tasks back to Excel (All Tasks)**:
 ```powershell
 scripts\actions_writeback.ps1 -InputPath "C:\Users\natha\Downloads\Actions.xlsx"

@@ -45,6 +45,16 @@ scripts\log_session.ps1
 scripts\run_webui.ps1
 ```
 
+**Gmail Draft (dry-run)**:
+```powershell
+python scripts/google_gmail_draft.py --to "you@example.com" --subject "Draft" --body "Hello"
+```
+
+**Calendar Draft (dry-run)**:
+```powershell
+python scripts/google_calendar_draft.py --title "Site visit" --start "2026-02-20T09:00:00" --end "2026-02-20T10:00:00"
+```
+
 ## Approval and Logging
 - Follow the approval process in `WORKFLOW.md`.
 - Use the checklist in `OPENCLAW_GUARDRAILS.md`.

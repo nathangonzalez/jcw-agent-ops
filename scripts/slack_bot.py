@@ -42,6 +42,8 @@ ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1"
 DM_ONLY = os.environ.get("CLAWDBOT_DM_ONLY", "false").strip().lower() in {"1", "true", "yes"}
 CODEX_DEFAULT = os.environ.get("CLAWDBOT_CODEX_DEFAULT", "false").strip().lower() in {"1", "true", "yes"}
 DISABLE_OPENCLAW = os.environ.get("CLAWDBOT_DISABLE_OPENCLAW", "false").strip().lower() in {"1", "true", "yes"}
+OPEN_CHAT = os.environ.get("CLAWDBOT_OPEN_CHAT", "false").strip().lower() in {"1", "true", "yes"}
+CHANNEL_PREFIX = os.environ.get("CLAWDBOT_CHANNEL_PREFIX", "").strip()
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
     (
@@ -548,17 +550,32 @@ def on_app_mention(event, say):
 def on_message(event, say):
     if event.get("subtype") or event.get("bot_id"):
         return
-    if event.get("channel_type") != "im":
-        return
+    channel_type = event.get("channel_type", "")
     text = normalize_text(event.get("text", ""))
     user = event.get("user", "")
     channel = event.get("channel", "")
-    if not is_allowed(user, channel, "im"):
-        log_line(f"dm blocked for user {user} in {channel}")
-        return
-    if not text:
-        text = "Hello! How can I help?"
-    log_line(f"dm from {user}: {text}")
+
+    # DM flow
+    if channel_type == "im":
+        if not is_allowed(user, channel, "im"):
+            log_line(f"dm blocked for user {user} in {channel}")
+            return
+        if not text:
+            text = "Hello! How can I help?"
+        log_line(f"dm from {user}: {text}")
+    else:
+        # Channel flow
+        if DM_ONLY:
+            return
+        if not is_allowed(user, channel, channel_type):
+            log_line(f"channel blocked for user {user} in {channel}")
+            return
+        if not text:
+            return
+        if not OPEN_CHAT:
+            if CHANNEL_PREFIX and not text.lower().startswith(CHANNEL_PREFIX.lower()):
+                return
+        log_line(f"channel msg from {user} in {channel}: {text}")
     try:
         if text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
@@ -591,11 +608,14 @@ def on_message(event, say):
                 channel=event.get("channel"),
                 text=truncate(response),
             )
-            log_line("dm reply sent")
+            if channel_type == "im":
+                log_line("dm reply sent")
+            else:
+                log_line("channel reply sent")
         else:
-            log_line("dm reply suppressed (duplicate)")
+            log_line("reply suppressed (duplicate)")
     except Exception as exc:
-        log_line(f"dm send failed: {exc}")
+        log_line(f"send failed: {exc}")
 
 
 @app.command("/claw")

@@ -50,7 +50,7 @@ def run_openclaw(user_text: str) -> str:
         "--thinking",
         "low",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
     if proc.returncode != 0:
         return f"Clawdbot error: {proc.stderr.strip() or 'unknown error'}"
     return proc.stdout.strip()
@@ -75,8 +75,14 @@ def on_app_mention(event, say):
     text = event.get("text", "")
     user = event.get("user", "")
     log_line(f"app_mention from {user}: {text}")
-    response = run_openclaw(text)
-    say(truncate(response), thread_ts=event.get("ts"))
+    try:
+        response = run_openclaw(text)
+    except Exception as exc:
+        response = f"Clawdbot error: {exc}"
+    try:
+        say(truncate(response), thread_ts=event.get("ts"))
+    except Exception as exc:
+        log_line(f"app_mention send failed: {exc}")
 
 
 @app.event("message")
@@ -88,8 +94,14 @@ def on_message(event, say):
     text = event.get("text", "")
     user = event.get("user", "")
     log_line(f"dm from {user}: {text}")
-    response = run_openclaw(text)
-    say(truncate(response))
+    try:
+        response = run_openclaw(text)
+    except Exception as exc:
+        response = f"Clawdbot error: {exc}"
+    try:
+        say(truncate(response))
+    except Exception as exc:
+        log_line(f"dm send failed: {exc}")
 
 
 if __name__ == "__main__":

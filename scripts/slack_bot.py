@@ -268,6 +268,11 @@ def maybe_local_response(text: str) -> Optional[str]:
     t = (text or "").lower()
     if not t:
         return None
+    if "latest" in t or "what's the latest" in t or "whats the latest" in t:
+        summary = []
+        summary.append("Latest summary:")
+        summary.append(render_sprint_summary())
+        return "\n".join(summary)
     if "digest" in t:
         return render_digest_summary()
     if any(key in t for key in ["summarize", "summary", "today", "sprint", "board", "backlog", "sumerize", "summerize"]):

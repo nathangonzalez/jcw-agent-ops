@@ -9,7 +9,7 @@ import subprocess
 import shutil
 import logging
 import re
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import sys
 import time
 from datetime import datetime
@@ -43,6 +43,7 @@ SAFE_PREFIX = os.environ.get(
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", r"C:\Users\natha\dev\repos\agent-ops\agent_outputs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / "clawdbot_slack_runtime.log"
+REPO_ROOT = Path(os.environ.get("CLAWDBOT_REPO_ROOT", r"C:\Users\natha\dev\repos\agent-ops"))
 
 LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -148,6 +149,69 @@ def should_send_reply(user_id: str, response: str) -> bool:
     return True
 
 
+def _extract_section(text: str, header: str) -> str:
+    pattern = rf"\\*\\*{re.escape(header)}\\*\\*\\n(.*?)(\\n\\*\\*|\\Z)"
+    match = re.search(pattern, text, flags=re.DOTALL)
+    if not match:
+        return ""
+    section = match.group(1).strip()
+    lines = [line for line in section.splitlines() if line.strip()]
+    return "\n".join(lines[:8])
+
+
+def render_sprint_summary() -> str:
+    sprint_path = REPO_ROOT / "SPRINT_BOARD.md"
+    if not sprint_path.exists():
+        return "Sprint board not found."
+    text = sprint_path.read_text(encoding="utf-8", errors="ignore")
+    lane_match = re.search(r"\\*\\*Lane Summaries.*?\\*\\*\\n(.*?)\\n---", text, flags=re.DOTALL)
+    lane_lines = ""
+    if lane_match:
+        lane_lines = "\n".join(
+            [line for line in lane_match.group(1).splitlines() if line.strip()]
+        ).strip()
+    ready = _extract_section(text, "Ready")
+    in_progress = _extract_section(text, "In Progress")
+    blocked = _extract_section(text, "Blocked")
+    done = _extract_section(text, "Done")
+    parts = []
+    if lane_lines:
+        parts.append("Lane summaries:\n" + lane_lines)
+    if ready:
+        parts.append("Ready:\n" + ready)
+    if in_progress:
+        parts.append("In Progress:\n" + in_progress)
+    if blocked:
+        parts.append("Blocked:\n" + blocked)
+    if done:
+        parts.append("Done:\n" + done)
+    return "\n\n".join(parts) if parts else "Sprint board is empty."
+
+
+def render_digest_summary() -> str:
+    digest_root = REPO_ROOT / "research" / "digests" / "daily"
+    if not digest_root.exists():
+        return "No research digest folder found."
+    digests = sorted(digest_root.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not digests:
+        return "No research digests found."
+    latest = digests[0]
+    lines = latest.read_text(encoding="utf-8", errors="ignore").splitlines()
+    preview = "\n".join(lines[:12]).strip()
+    return f"Latest digest: {latest.name}\n\n{preview}" if preview else f"Latest digest: {latest.name}"
+
+
+def maybe_local_response(text: str) -> Optional[str]:
+    t = (text or "").lower()
+    if not t:
+        return None
+    if "digest" in t:
+        return render_digest_summary()
+    if any(key in t for key in ["summarize", "summary", "today", "sprint", "board", "backlog", "sumerize", "summerize"]):
+        return render_sprint_summary()
+    return None
+
+
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
     if ALLOW_USERS and user_id not in ALLOW_USERS:
         return False
@@ -178,7 +242,7 @@ def on_app_mention(event, say):
         text = "Hello! How can I help?"
     log_line(f"app_mention from {user}: {text}")
     try:
-        response = sanitize_response(run_openclaw(text))
+        response = maybe_local_response(text) or sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -211,7 +275,7 @@ def on_message(event, say):
         text = "Hello! How can I help?"
     log_line(f"dm from {user}: {text}")
     try:
-        response = sanitize_response(run_openclaw(text))
+        response = maybe_local_response(text) or sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -244,7 +308,7 @@ def on_slash_claw(ack, body):
         text = "Hello! How can I help?"
     log_line(f"slash command from {user} in {channel}: {text}")
     try:
-        response = sanitize_response(run_openclaw(text))
+        response = maybe_local_response(text) or sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     if should_send_reply(user, response):

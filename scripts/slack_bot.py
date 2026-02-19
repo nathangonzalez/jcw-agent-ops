@@ -187,7 +187,6 @@ def on_app_mention(event, say):
             app.client.chat_postMessage(
                 channel=event.get("channel"),
                 text=truncate(response),
-                thread_ts=event.get("ts"),
             )
             log_line("app_mention reply sent")
         else:

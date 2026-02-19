@@ -5,7 +5,6 @@ Posts a summary to Slack using the bot token.
 """
 
 import os
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,11 +22,11 @@ def read_recent_lines(path: Path, since: datetime):
     lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
     recent = []
     for line in lines:
-        match = re.match(r"\\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})\\]", line)
-        if not match:
+        if not line.startswith("[") or "]" not in line:
             continue
+        ts_str = line[1:20]
         try:
-            ts = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
         except ValueError:
             continue
         if ts >= since:
@@ -68,7 +67,7 @@ def main():
 
     text = (
         "*Clawbot Hourly Report*\n"
-        f"- Window: {since.strftime('%H:%M')}–{now.strftime('%H:%M')} UTC\n"
+        f"- Window: {since.strftime('%H:%M')}-{now.strftime('%H:%M')} UTC\n"
         f"- DMs: {dms}\n"
         f"- Mentions: {mentions}\n"
         f"- Replies sent: {replies}\n"

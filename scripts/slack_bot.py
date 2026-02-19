@@ -230,7 +230,7 @@ def on_message(event, say):
 
 @app.command("/claw")
 def on_slash_claw(ack, body):
-    ack()
+    ack("Working on it…")
     user = body.get("user_id", "")
     channel = body.get("channel_id", "")
     text = normalize_text(body.get("text", ""))

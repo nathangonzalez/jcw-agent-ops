@@ -15,6 +15,7 @@
 ## P2 - Enhancements
 - Create a persistent memory file (`PERSIST.txt`) and a summary updater.
 - Add explicit status commands:
+<!-- patch click test -->
   - `/claw status` (sprint summary)
   - `/claw digest` (latest digest)
   - `/claw agent-status` (bot uptime + errors)

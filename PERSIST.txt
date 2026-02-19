@@ -1,2 +1,72 @@
 # Persistent Memory Log
 
+## 2026-02-19 18:52 UTC
+
+### Supervisor Memory
+# Supervisor Memory (JCW Agent Ops)
+## Purpose
+This file captures stable context and decisions so the Codex supervisor can
+operate from Slack with continuity. Keep it concise and update when major
+decisions change.
+## System Topology
+- Slack bot (Clawbot) runs on a GCP VM for 24/7 uptime.
+- Repo: `jcw-agent-ops` (GitHub). VM clones to `/opt/agent-ops`.
+- VM instance: `clawbot-ops` in `us-central1-a`.
+- Service account: `clawbot-sa@jcw-2-android-estimator.iam.gserviceaccount.com`
+  with Secret Manager + Logging.
+- Secrets stored in GCP Secret Manager:
+  - `slack_bot_token`, `slack_app_token`, `slack_signing_secret`
+  - `anthropic_api_key`, `openai_api_key`
+- Runtime env on VM: `/etc/clawbot.env`
+- Services:
+  - `clawbot.service` (Slack bot)
+  - `clawbot-monitor.timer` (hourly health report)
+## Operating Model
+- Codex (supervisor) in this chat or via Slack using prefix `codex:`.
+
+### Supervisor Backlog
+# Supervisor Backlog
+## P0 - Must Fix
+- Ensure Slack responses are context-rich (match this chat).
+- Confirm sprint board parsing in Slack always works (CRLF-safe).
+## P1 - High Priority
+- Add `SUPERVISOR_BACKLOG` and `SUPERVISOR_MEMORY` readback in Slack:
+  `/claw codex supervisor status`.
+- Add optional "Codex default" toggle (no prefix) via env.
+- Add daily summary job (sprint + digest) to `#jcw_bot`.
+- Payroll: reconcile weekly exports vs SQLite DB.
+- Suite: build modern dashboard with backlog cards + suite scaffold.
+## P2 - Enhancements
+- Create a persistent memory file (`PERSIST.txt`) and a summary updater.
+- Add explicit status commands:
+  - `/claw status` (sprint summary)
+  - `/claw digest` (latest digest)
+  - `/claw agent-status` (bot uptime + errors)
+
+### Sprint Board (top)
+# Sprint Board
+**Lane Summaries (2026-02-18)**
+- Infra Lane: Monorepo CI/CD plan with path filters, matrix builds, patch deploy, and manual promote for App Engine services.
+- Product Lane: Suite-shell UX with top bar + side app dock, app routing, and lazy module loading.
+- Finance Lane: Ledger taxonomy v1, manual review triggers, and cash flow phase mapping by construction phase.
+- Scout Lane: Repo inventory template; only payroll partially filled; needs crawl of all JCW repos.
+- Research Lane: 5 agentic modeling spikes; sources require verification before adoption.
+---
+**Ready**
+- Infra: Draft monorepo directory layout under `services/` with payroll, estimating, financials, suite-shell. Acceptance: repo layout doc + directories created.
+- Product: Build suite-shell skeleton UI with app buttons and routing stub. Acceptance: app dock renders and routes to placeholder pages.
+- Research: Verify sources and convert 5 spikes into full spike docs with evidence. Acceptance: 5 spike files in `research/spikes/`.
+**In Progress**
+- Infra: Implement GitHub Actions matrix workflow with path filters and App Engine patch/promote per service. Acceptance: `infra/ci-cd-monorepo.yml` added.
+- Scout: Create repo inventory and populate all JCW repos. Acceptance: table with stack, deploy, datastore, owners, risks.
+**Blocked**
+- None
+**Done**
+- Finance: Ledger taxonomy v1 published (`finance/ledger_taxonomy_v1.md`).
+- Finance: Manual review queue spec published (`finance/manual_review_queue.md`).
+- Finance: Cash flow phase mapping published (`finance/cash_flow_phase_mapping.md`).
+- Infra: Monorepo plan drafted (`infra/monorepo_plan.md`).
+- Product: Suite-shell UX spec drafted (`product/suite_shell_spec.md`).
+- Scout: Initial repo inventory drafted (`inventory/repo_inventory.md`).
+
+---

@@ -68,6 +68,8 @@ logging.getLogger("slack_bolt.socket_mode").setLevel(logging.INFO)
 _LAST_REPLY: Dict[str, Tuple[str, float]] = {}
 _PENDING_APPROVALS: Dict[str, Dict[str, str]] = {}
 _PENDING_CODE: Dict[str, Dict[str, str]] = {}
+_PENDING_CODE_BY_JOB: Dict[str, Dict[str, str]] = {}
+_CODE_STATUS: Dict[str, Dict[str, str]] = {}
 
 
 def log_line(message: str):
@@ -465,6 +467,8 @@ def request_code_approval(channel: str, requester: str, job_id: str, summary: st
     message_ts = result.get("ts")
     if message_ts:
         _PENDING_CODE[message_ts] = {"job": job_id, "channel": channel}
+        _PENDING_CODE_BY_JOB[job_id] = {"channel": channel, "message_ts": message_ts, "requester": requester}
+        _CODE_STATUS[job_id] = {"status": "pending", "updated": datetime.utcnow().isoformat()}
     return "Code mode proposal ready. Click Apply Patch to proceed."
 
 
@@ -685,11 +689,49 @@ def on_code_apply(ack, body):
     ack()
     message = body.get("message", {})
     message_ts = message.get("ts")
-    if not message_ts or message_ts not in _PENDING_CODE:
+    user_id = body.get("user", {}).get("id")
+    actions = body.get("actions") or []
+    job_id = actions[0].get("value") if actions else None
+    log_line(f"code_apply action by {user_id or 'unknown'} job={job_id or 'unknown'}")
+    payload = None
+    if message_ts and message_ts in _PENDING_CODE:
+        payload = _PENDING_CODE.pop(message_ts)
+        job_id = job_id or payload.get("job")
+    if not payload and job_id and job_id in _PENDING_CODE_BY_JOB:
+        payload = _PENDING_CODE_BY_JOB[job_id]
+    if not job_id or not payload:
+        if user_id and message_ts:
+            app.client.chat_postEphemeral(
+                channel=payload["channel"] if payload else body.get("channel", {}).get("id"),
+                user=user_id,
+                text="That patch request is no longer pending.",
+            )
+        log_line("code_apply ignored (no pending job)")
         return
-    payload = _PENDING_CODE.pop(message_ts)
-    job_id = payload["job"]
     channel = payload["channel"]
+    status = _CODE_STATUS.get(job_id, {}).get("status")
+    if status in {"applying", "applied"}:
+        if user_id:
+            app.client.chat_postEphemeral(
+                channel=channel,
+                user=user_id,
+                text=f"Patch already {status}.",
+            )
+        log_line(f"code_apply ignored (status={status})")
+        return
+    _CODE_STATUS[job_id] = {"status": "applying", "updated": datetime.utcnow().isoformat()}
+    try:
+        if message_ts:
+            app.client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text="Applying patch...",
+                blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Applying patch*\nJob {job_id}"}},
+                ],
+            )
+    except Exception:
+        pass
     try:
         from subprocess import run
         cmd = [
@@ -700,11 +742,32 @@ def on_code_apply(ack, body):
         ]
         proc = run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
+            _CODE_STATUS[job_id] = {"status": "failed", "updated": datetime.utcnow().isoformat()}
+            _PENDING_CODE_BY_JOB.pop(job_id, None)
             app.client.chat_postMessage(channel=channel, text=f"Code apply failed: {proc.stderr.strip()}")
+            log_line(f"code_apply failed (job={job_id}): {proc.stderr.strip()}")
             return
+        _CODE_STATUS[job_id] = {"status": "applied", "updated": datetime.utcnow().isoformat()}
+        _PENDING_CODE_BY_JOB.pop(job_id, None)
         app.client.chat_postMessage(channel=channel, text=proc.stdout.strip() or "Code patch applied.")
+        log_line(f"code_apply ok (job={job_id})")
+        if message_ts:
+            try:
+                app.client.chat_update(
+                    channel=channel,
+                    ts=message_ts,
+                    text="Patch applied.",
+                    blocks=[
+                        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Patch applied*\nJob {job_id}"}},
+                    ],
+                )
+            except Exception:
+                pass
     except Exception as exc:
+        _CODE_STATUS[job_id] = {"status": "failed", "updated": datetime.utcnow().isoformat()}
+        _PENDING_CODE_BY_JOB.pop(job_id, None)
         app.client.chat_postMessage(channel=channel, text=f"Code apply error: {exc}")
+        log_line(f"code_apply exception (job={job_id}): {exc}")
 
 
 @app.action("code_reject")
@@ -712,8 +775,16 @@ def on_code_reject(ack, body):
     ack()
     message = body.get("message", {})
     message_ts = message.get("ts")
+    job_id = None
     if message_ts and message_ts in _PENDING_CODE:
+        job_id = _PENDING_CODE.get(message_ts, {}).get("job")
         _PENDING_CODE.pop(message_ts, None)
+    actions = body.get("actions") or []
+    if actions:
+        job_id = job_id or actions[0].get("value")
+    if job_id:
+        _CODE_STATUS[job_id] = {"status": "rejected", "updated": datetime.utcnow().isoformat()}
+        _PENDING_CODE_BY_JOB.pop(job_id, None)
 
 
 if __name__ == "__main__":

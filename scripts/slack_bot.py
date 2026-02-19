@@ -283,6 +283,13 @@ def maybe_codex_response(text: str) -> Optional[str]:
     return None
 
 
+def is_codex_text(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower()
+    return lower.startswith("codex:") or lower.startswith("codex ")
+
+
 def _load_context_snippet(path: Path, max_chars: int = 1800) -> str:
     if not path.exists():
         return ""
@@ -389,15 +396,17 @@ def on_app_mention(event, say):
         text = "Hello! How can I help?"
     log_line(f"app_mention from {user}: {text}")
     try:
-        local = maybe_local_response(text)
-        if local:
-            response = local
+        if is_codex_text(text):
+            response = sanitize_response(maybe_codex_response(text))
         elif text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
             response = request_approval(channel, user, task)
         else:
-            codex = maybe_codex_response(text)
-            response = sanitize_response(codex if codex else run_openclaw(text))
+            local = maybe_local_response(text)
+            if local:
+                response = local
+            else:
+                response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -430,15 +439,17 @@ def on_message(event, say):
         text = "Hello! How can I help?"
     log_line(f"dm from {user}: {text}")
     try:
-        local = maybe_local_response(text)
-        if local:
-            response = local
+        if is_codex_text(text):
+            response = sanitize_response(maybe_codex_response(text))
         elif text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
             response = request_approval(channel, user, task)
         else:
-            codex = maybe_codex_response(text)
-            response = sanitize_response(codex if codex else run_openclaw(text))
+            local = maybe_local_response(text)
+            if local:
+                response = local
+            else:
+                response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -471,15 +482,17 @@ def on_slash_claw(ack, body, respond):
         text = "Hello! How can I help?"
     log_line(f"slash command from {user} in {channel}: {text}")
     try:
-        local = maybe_local_response(text)
-        if local:
-            response = local
+        if is_codex_text(text):
+            response = sanitize_response(maybe_codex_response(text))
         elif text.lower().startswith("approve "):
             task = text.split(" ", 1)[1].strip() or "Unspecified task"
             response = request_approval(channel, user, task)
         else:
-            codex = maybe_codex_response(text)
-            response = sanitize_response(codex if codex else run_openclaw(text))
+            local = maybe_local_response(text)
+            if local:
+                response = local
+            else:
+                response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     if should_send_reply(user, response):

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_sdk.errors import SlackApiError
 
 
 BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip()
@@ -245,15 +246,30 @@ def build_approval_blocks(task: str, requester: str) -> list:
     ]
 
 
-def request_approval(channel: str, requester: str, task: str):
-    result = app.client.chat_postMessage(
-        channel=channel,
-        text=f"Approval requested: {task}",
-        blocks=build_approval_blocks(task, requester),
-    )
+def request_approval(channel: str, requester: str, task: str) -> str:
+    try:
+        result = app.client.chat_postMessage(
+            channel=channel,
+            text=f"Approval requested: {task}",
+            blocks=build_approval_blocks(task, requester),
+        )
+    except SlackApiError as exc:
+        if exc.response.get("error") == "not_in_channel":
+            try:
+                app.client.conversations_join(channel=channel)
+                result = app.client.chat_postMessage(
+                    channel=channel,
+                    text=f"Approval requested: {task}",
+                    blocks=build_approval_blocks(task, requester),
+                )
+            except SlackApiError:
+                return "I need to be added to this channel or granted `conversations:join` scope."
+        else:
+            return f"Approval error: {exc.response.get('error')}"
     message_ts = result.get("ts")
     if message_ts:
         _PENDING_APPROVALS[message_ts] = {"task": task, "requester": requester, "channel": channel}
+    return "Approval requested. Click Approve or Reject."
 
 
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
@@ -291,8 +307,7 @@ def on_app_mention(event, say):
             response = local
         elif text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
-            request_approval(channel, user, task)
-            response = "Approval requested. Click Approve or Reject."
+            response = request_approval(channel, user, task)
         else:
             response = sanitize_response(run_openclaw(text))
     except Exception as exc:
@@ -332,8 +347,7 @@ def on_message(event, say):
             response = local
         elif text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
-            request_approval(channel, user, task)
-            response = "Approval requested. Click Approve or Reject."
+            response = request_approval(channel, user, task)
         else:
             response = sanitize_response(run_openclaw(text))
     except Exception as exc:
@@ -373,8 +387,7 @@ def on_slash_claw(ack, body):
             response = local
         elif text.lower().startswith("approve "):
             task = text.split(" ", 1)[1].strip() or "Unspecified task"
-            request_approval(channel, user, task)
-            response = "Approval requested. Click Approve or Reject."
+            response = request_approval(channel, user, task)
         else:
             response = sanitize_response(run_openclaw(text))
     except Exception as exc:

@@ -18,6 +18,10 @@ from pathlib import Path
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover - optional dependency
+    OpenAI = None
 
 
 BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip()
@@ -29,6 +33,8 @@ if not BOT_TOKEN or not APP_TOKEN:
 
 OPENCLAW_AGENT = os.environ.get("CLAWDBOT_AGENT", "orchestrator")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "").strip()
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+CODEX_MODEL = os.environ.get("CODEX_MODEL", "gpt-4o-mini").strip()
 ALLOW_USERS = {u.strip() for u in os.environ.get("CLAWDBOT_ALLOW_USERS", "").split(",") if u.strip()}
 ALLOW_CHANNELS = {c.strip() for c in os.environ.get("CLAWDBOT_ALLOW_CHANNELS", "").split(",") if c.strip()}
 ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1", "true", "yes"}
@@ -103,6 +109,23 @@ def run_openclaw(user_text: str) -> str:
         return f"Clawdbot error: {proc.stderr.strip() or 'unknown error'}"
     log_line(f"openclaw ok in {elapsed:.1f}s")
     return proc.stdout.strip()
+
+
+def run_codex(user_text: str) -> str:
+    if not OPENAI_API_KEY:
+        return "Clawdbot error: OPENAI_API_KEY is not set."
+    if OpenAI is None:
+        return "Clawdbot error: openai package not installed."
+    prompt = f"{SAFE_PREFIX}\n\nUser: {user_text}".strip()
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    try:
+        response = client.responses.create(
+            model=CODEX_MODEL,
+            input=prompt,
+        )
+    except Exception as exc:
+        return f"Clawdbot error: {exc}"
+    return getattr(response, "output_text", "").strip() or "No response."
 
 
 def truncate(text: str, limit: int = 3000) -> str:
@@ -230,6 +253,17 @@ def maybe_local_response(text: str) -> Optional[str]:
     return None
 
 
+def maybe_codex_response(text: str) -> Optional[str]:
+    if not text:
+        return None
+    lower = text.lower()
+    if lower.startswith("codex:"):
+        return run_codex(text.split(":", 1)[1].strip())
+    if lower.startswith("codex "):
+        return run_codex(text.split(" ", 1)[1].strip())
+    return None
+
+
 def build_approval_blocks(task: str, requester: str) -> list:
     return [
         {
@@ -325,7 +359,8 @@ def on_app_mention(event, say):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
             response = request_approval(channel, user, task)
         else:
-            response = sanitize_response(run_openclaw(text))
+            codex = maybe_codex_response(text)
+            response = sanitize_response(codex if codex else run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -365,7 +400,8 @@ def on_message(event, say):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
             response = request_approval(channel, user, task)
         else:
-            response = sanitize_response(run_openclaw(text))
+            codex = maybe_codex_response(text)
+            response = sanitize_response(codex if codex else run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -405,7 +441,8 @@ def on_slash_claw(ack, body):
             task = text.split(" ", 1)[1].strip() or "Unspecified task"
             response = request_approval(channel, user, task)
         else:
-            response = sanitize_response(run_openclaw(text))
+            codex = maybe_codex_response(text)
+            response = sanitize_response(codex if codex else run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     if should_send_reply(user, response):

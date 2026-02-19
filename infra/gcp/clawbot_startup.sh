@@ -27,7 +27,7 @@ else
 fi
 
 pip3 install --upgrade pip
-pip3 install slack-bolt slack-sdk
+pip3 install slack-bolt slack-sdk openai
 
 # Fetch secrets
 SLACK_BOT_TOKEN="$(gcloud secrets versions access latest --secret=slack_bot_token --project "$PROJECT_ID")"

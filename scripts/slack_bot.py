@@ -210,7 +210,11 @@ def render_sprint_summary() -> str:
         parts.append("Blocked:\n" + blocked)
     if done:
         parts.append("Done:\n" + done)
-    return "\n\n".join(parts) if parts else "Sprint board is empty."
+    if parts:
+        return "\n\n".join(parts)
+    # Debug hint for troubleshooting in Slack
+    head = "\n".join([line for line in text.splitlines()[:6] if line.strip()])
+    return f"Sprint board is empty. Path: {sprint_path}\nFirst lines:\n{head}"
 
 
 def strip_ansi(text: str) -> str:

@@ -59,6 +59,15 @@ scripts\clawdbot_run.ps1
 ```
 Config: `clawdbot/clawdbot.json`
 
+**Slack Bridge (Socket Mode)**:
+```powershell
+pip install slack-bolt slack-sdk
+$env:SLACK_BOT_TOKEN="xoxb-..."
+$env:SLACK_APP_TOKEN="xapp-..."
+$env:SLACK_SIGNING_SECRET="..."
+scripts\run_slack_bot.ps1
+```
+
 **Sync Tasks back to Excel (All Tasks)**:
 ```powershell
 scripts\actions_writeback.ps1 -InputPath "C:\Users\natha\Downloads\Actions.xlsx"

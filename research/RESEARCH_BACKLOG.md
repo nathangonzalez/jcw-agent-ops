@@ -109,3 +109,60 @@
 ---
 ```
 
+
+---
+
+## Proposed Spikes (weekly 2026-02-18)
+
+## Proposed Spikes
+
+### 1. Spike: Coalition Formation & Communication in LLM Agent Groups  
+- **Goal:** Quantify the conditions under which LLM agents form coalitions and the role of explicit communication.  
+- **Scope:** Simulate team tasks with controlled communication parameters and resource models using recent LLMs.  
+- **Sources:** Chen et al., 2026 (arXiv); DeepMind Research 2026  
+- **Experiment:**  
+  - Vary communication protocols and resource allocation.
+  - Track group formation, negotiation, and collective task outcomes.
+
+---
+
+### 2. Spike: Multi-Agent Safety Protocol Audit  
+- **Goal:** Stress-test alignment/safety layers for MARL systems under threat models involving agent collusion or misaligned incentives.  
+- **Scope:** Scenarios where agents can share private information or form cliques to subvert intended controls.  
+- **Sources:** AI Alignment Forum Podcast 2026; Christiano, 2023  
+- **Experiment:**  
+  - Inject adversarial coordination incentives.
+  - Measure frequency and impact of protocol violations/goal divergences.
+
+---
+
+### 3. Spike: Tool-Use Efficiency in Cooperative Memory-Augmented Agent Teams  
+- **Goal:** Assess improvements in efficiency and solution quality when teams share tools and persistent memory.  
+- **Scope:** Benchmark DeepMind’s collective problem-solving tasks with and without shared memory/tool access.  
+- **Sources:** DeepMind Research video, 2026-02-12  
+- **Experiment:**  
+  - Run comparative trials on open benchmarks.
+  - Analyze completion times, collaborative behaviors, and error reduction.
+
+---
+
+### 4. Spike: OMASI Coordination Benchmark Cross-Validation  
+- **Goal:** Validate MARL algorithm performance on new OMASI coordination benchmarks.  
+- **Scope:** Implement and test at least two algorithmic paradigms on challenge tasks.  
+- **Sources:** OMASI Docs, 2026-02-16  
+- **Experiment:**  
+  - Standardize codebase and parameters.
+  - Report on convergence, communication overhead, and task outcomes.
+
+---
+
+### 5. Spike: Communication Restriction Ablations in Multi-Agent Systems  
+- **Goal:** Identify thresholds at which reducing inter-agent communication fatally degrades coordination and performance.  
+- **Scope:** Incrementally limit bandwidth/channels on selected benchmark tasks.  
+- **Sources:** Foerster et al., 2016; Wang & Lu, 2021  
+- **Experiment:**  
+  - Systematically ablate communication features.
+  - Correlate reductions with team success and adaptation rates.
+
+---
+```

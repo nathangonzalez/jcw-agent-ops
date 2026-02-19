@@ -171,3 +171,5 @@ powershell -File safe-promote.ps1 <old_version>
 2026-02-19 09:12:00 | FIX: added ESC + backdrop click to close draft modal
 2026-02-19 09:18:30 | FIX: modal hidden CSS override + Playwright selector fix; UAT demo passed
 2026-02-19 09:30:00 | SESSION: configured clawdbot v1 (clawdbot.json + clawdbot_run.ps1 + inventory updater)
+2026-02-18 20:36:10 | SESSION: ran clawdbot_run.ps1; outputs in agent_outputs\\clawdbot_20260218-203506; gateway closed (1006) fallback to embedded
+2026-02-19 10:05:00 | SESSION: added Slack Socket Mode bridge (scripts/slack_bot.py + run_slack_bot.ps1 + integrations/slack/README.md)

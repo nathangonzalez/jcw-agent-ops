@@ -1,0 +1,15 @@
+[Unit]
+Description=Agent Ops Web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/clawbot.env
+WorkingDirectory=/opt/agent-ops/webui
+ExecStart=/usr/bin/python3 /opt/agent-ops/webui/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JCW Suite Ops</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-orb orb-3"></div>
+
+    <header class="hero">
+      <div class="hero-left">
+        <div class="eyebrow">JCW Suite</div>
+        <h1>Ops Dashboard</h1>
+        <p>Live view of sprint, backlog, and bot health.</p>
+      </div>
+      <div class="hero-right">
+        <div class="stats">
+          <div class="stat">
+            <span id="ops-dms">0</span>
+            <label>DMs</label>
+          </div>
+          <div class="stat">
+            <span id="ops-replies">0</span>
+            <label>Replies</label>
+          </div>
+          <div class="stat">
+            <span id="ops-errors">0</span>
+            <label>Errors</label>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="suite-actions">
+        <button id="refresh" class="btn">Refresh All</button>
+        <a class="btn ghost" href="/">All Tasks</a>
+      </div>
+    </section>
+
+    <section class="suite-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Sprint Board</h2>
+          <span id="sprint-updated" class="statusline">loading...</span>
+        </div>
+        <pre id="sprint-content" class="mono"></pre>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Supervisor Backlog</h2>
+          <span id="backlog-updated" class="statusline">loading...</span>
+        </div>
+        <pre id="backlog-content" class="mono"></pre>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Ops Health</h2>
+          <span id="ops-last" class="statusline">loading...</span>
+        </div>
+        <div class="ops-grid">
+          <div>
+            <div class="ops-label">Mentions</div>
+            <div id="ops-mentions" class="ops-value">0</div>
+          </div>
+          <div>
+            <div class="ops-label">Runtime Errors</div>
+            <div id="ops-runtime" class="ops-value">0</div>
+          </div>
+          <div>
+            <div class="ops-label">Log Path</div>
+            <div id="ops-path" class="ops-value mono small"></div>
+          </div>
+        </div>
+        <div class="ops-last-event">
+          <div class="ops-label">Last Event</div>
+          <div id="ops-event" class="mono small"></div>
+        </div>
+      </div>
+    </section>
+
+    <script src="/static/suite.js"></script>
+  </body>
+</html>

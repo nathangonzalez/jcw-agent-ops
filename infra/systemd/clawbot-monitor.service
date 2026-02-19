@@ -1,0 +1,10 @@
+[Unit]
+Description=Clawbot Monitor Report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/clawbot.env
+WorkingDirectory=/opt/agent-ops
+ExecStart=/usr/bin/python3 /opt/agent-ops/scripts/monitor_bot.py

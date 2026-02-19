@@ -14,6 +14,7 @@ from slack_sdk import WebClient
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", "/opt/agent-ops/agent_outputs"))
 CHANNEL = os.environ.get("CLAWDBOT_MONITOR_CHANNEL", "#jcw_bot")
 BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+INTERVAL_MIN = int(os.environ.get("CLAWDBOT_MONITOR_INTERVAL_MIN", "60"))
 
 
 def read_recent_lines(path: Path, since: datetime):
@@ -39,7 +40,7 @@ def main():
         raise SystemExit("Missing SLACK_BOT_TOKEN")
 
     now = datetime.now(timezone.utc)
-    since = now - timedelta(hours=1)
+    since = now - timedelta(minutes=INTERVAL_MIN)
 
     slack_log = LOG_DIR / "clawdbot_slack.log"
     runtime_log = LOG_DIR / "clawdbot_slack_runtime.log"
@@ -78,8 +79,8 @@ def main():
     last_event = recent[-1] if recent else "No events in last hour."
 
     text = (
-        "*Clawbot Hourly Report*\n"
-        f"- Window: {since.strftime('%H:%M')}-{now.strftime('%H:%M')} UTC\n"
+        "*Clawbot Status Report*\n"
+        f"- Window: {since.strftime('%H:%M')}-{now.strftime('%H:%M')} UTC ({INTERVAL_MIN}m)\n"
         f"- DMs: {dms}\n"
         f"- Mentions: {mentions}\n"
         f"- Replies sent: {replies}\n"

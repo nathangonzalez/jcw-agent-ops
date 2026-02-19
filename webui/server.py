@@ -15,14 +15,55 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR.parent / "data" / "actions.sqlite"
+REPO_ROOT = BASE_DIR.parent
+DB_PATH = REPO_ROOT / "data" / "actions.sqlite"
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
-DRAFTS_DIR = BASE_DIR.parent / "data" / "drafts"
+DRAFTS_DIR = REPO_ROOT / "data" / "drafts"
+SPRINT_PATH = REPO_ROOT / "SPRINT_BOARD.md"
+BACKLOG_PATH = REPO_ROOT / "SUPERVISOR_BACKLOG.md"
+OPS_LOG = REPO_ROOT / "agent_outputs" / "clawdbot_slack.log"
+RUNTIME_LOG = REPO_ROOT / "agent_outputs" / "clawdbot_slack_runtime.log"
 
 
 def row_to_dict(row, columns):
     return {col: row[i] for i, col in enumerate(columns)}
+
+
+def read_text_safe(path: Path, limit: int = 12000) -> str:
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if len(text) <= limit:
+        return text
+    return text[-limit:]
+
+
+def tail_lines(path: Path, limit: int = 120) -> list:
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    return lines[-limit:]
+
+
+def compute_ops_summary():
+    slack_lines = tail_lines(OPS_LOG, 200)
+    runtime_lines = tail_lines(RUNTIME_LOG, 200)
+    errors = sum(1 for line in slack_lines if "error" in line.lower())
+    runtime_errors = sum(1 for line in runtime_lines if "error" in line.lower())
+    dms = sum(1 for line in slack_lines if "dm from" in line.lower())
+    mentions = sum(1 for line in slack_lines if "app_mention" in line.lower())
+    replies = sum(1 for line in slack_lines if "reply sent" in line.lower())
+    last_event = slack_lines[-1] if slack_lines else "No events yet."
+    return {
+        "dms": dms,
+        "mentions": mentions,
+        "replies": replies,
+        "errors": errors,
+        "runtime_errors": runtime_errors,
+        "last_event": last_event,
+        "log_path": str(OPS_LOG),
+    }
 
 
 class TaskServer(BaseHTTPRequestHandler):
@@ -71,6 +112,9 @@ class TaskServer(BaseHTTPRequestHandler):
         if path == "/" or path == "":
             self._serve_file(TEMPLATES_DIR / "index.html", "text/html; charset=utf-8")
             return
+        if path == "/suite":
+            self._serve_file(TEMPLATES_DIR / "suite.html", "text/html; charset=utf-8")
+            return
         if path.startswith("/static/"):
             rel = path.replace("/static/", "")
             file_path = STATIC_DIR / rel
@@ -90,6 +134,21 @@ class TaskServer(BaseHTTPRequestHandler):
             return
         if path == "/api/tasks":
             self.handle_list_tasks(parsed.query)
+            return
+        if path == "/api/sprint":
+            text = read_text_safe(SPRINT_PATH)
+            self._send_json(
+                {"content": text, "updated_at": SPRINT_PATH.stat().st_mtime if SPRINT_PATH.exists() else None}
+            )
+            return
+        if path == "/api/backlog":
+            text = read_text_safe(BACKLOG_PATH)
+            self._send_json(
+                {"content": text, "updated_at": BACKLOG_PATH.stat().st_mtime if BACKLOG_PATH.exists() else None}
+            )
+            return
+        if path == "/api/ops":
+            self._send_json(compute_ops_summary())
             return
         self._send_text("Not found", status=404)
 

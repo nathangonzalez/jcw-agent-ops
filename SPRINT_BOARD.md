@@ -17,6 +17,9 @@
 **In Progress**
 - Infra: Implement GitHub Actions matrix workflow with path filters and App Engine patch/promote per service. Acceptance: `infra/ci-cd-monorepo.yml` added.
 - Scout: Create repo inventory and populate all JCW repos. Acceptance: table with stack, deploy, datastore, owners, risks.
+- Ops Agent (Dashboard): Ship suite ops dashboard `/suite` with sprint/backlog/ops panels. Acceptance: `/suite` loads with live data.
+- Ops Agent (Monitor): 15-min monitor timer + status report. Acceptance: timer active + Slack report every 15m.
+- Ops Agent (Payroll): Payroll reconcile script against exports + app.db. Acceptance: script runs and outputs week summary.
 
 **Blocked**
 - None

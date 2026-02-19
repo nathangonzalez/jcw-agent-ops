@@ -136,7 +136,7 @@ def is_compliance_reply(text: str) -> bool:
 
 def sanitize_response(text: str) -> str:
     if is_compliance_reply(text):
-        return "Hi! Tell me what you want to accomplish and I’ll help."
+        return "Hi! Tell me what you want to accomplish and I'll help."
     return text
 
 
@@ -190,6 +190,13 @@ def render_sprint_summary() -> str:
     return "\n\n".join(parts) if parts else "Sprint board is empty."
 
 
+def strip_ansi(text: str) -> str:
+    # Remove ANSI escape sequences and control characters
+    text = re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", text)
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
+    return text
+
+
 def render_digest_summary() -> str:
     digest_root = REPO_ROOT / "research" / "digests" / "daily"
     if not digest_root.exists():
@@ -199,7 +206,16 @@ def render_digest_summary() -> str:
         return "No research digests found."
     latest = digests[0]
     lines = latest.read_text(encoding="utf-8", errors="ignore").splitlines()
-    preview = "\n".join(lines[:12]).strip()
+    cleaned = []
+    for line in lines:
+        line = strip_ansi(line).strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if "temporary outage" in lower or "web fetching" in lower or "api restored" in lower:
+            continue
+        cleaned.append(line)
+    preview = "\n".join(cleaned[:12]).strip()
     return f"Latest digest: {latest.name}\n\n{preview}" if preview else f"Latest digest: {latest.name}"
 
 
@@ -367,7 +383,7 @@ def on_message(event, say):
 
 @app.command("/claw")
 def on_slash_claw(ack, body):
-    ack("Working on it…")
+    ack("Working on it...")
     user = body.get("user_id", "")
     channel = body.get("channel_id", "")
     text = normalize_text(body.get("text", ""))

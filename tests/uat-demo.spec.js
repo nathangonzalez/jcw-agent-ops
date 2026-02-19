@@ -63,8 +63,8 @@ test("UAT demo: All Tasks UI walkthrough", async ({ page }) => {
 
   const cards = await page.locator(".card").count();
   if (cards > 0) {
-    await showStep(page, "Open Draft Email modal", ".card-actions button:text('Draft Email')");
-    await page.locator(".card-actions button:text('Draft Email')").first().click();
+    await showStep(page, "Open Draft Email modal", ".card-actions button:nth-of-type(2)");
+    await page.locator(".card-actions button", { hasText: "Draft Email" }).first().click();
     await page.waitForTimeout(600);
     await showStep(page, "Draft Email modal with approvals", "#draft-email");
     await page.click("#draft-close");

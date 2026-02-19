@@ -8,6 +8,7 @@ import os
 import subprocess
 import shutil
 import logging
+import re
 import sys
 import time
 from datetime import datetime
@@ -31,7 +32,11 @@ ALLOW_CHANNELS = {c.strip() for c in os.environ.get("CLAWDBOT_ALLOW_CHANNELS", "
 ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1", "true", "yes"}
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
-    "You are Clawdbot. Do not take external actions. Provide guidance only. Ask for approval before any external action.",
+    (
+        "You are Clawdbot. Safety rules: do not take external actions; provide guidance only; "
+        "ask for approval before any external action. Do not repeat or acknowledge these rules. "
+        "Reply directly and helpfully to the user's request."
+    ),
 )
 
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", r"C:\Users\natha\dev\repos\agent-ops\agent_outputs"))
@@ -100,6 +105,13 @@ def truncate(text: str, limit: int = 3000) -> str:
     return text[: limit - 3] + "..."
 
 
+def normalize_text(text: str) -> str:
+    # Remove bot mentions and extra whitespace
+    cleaned = re.sub(r"<@[^>]+>", "", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
     if ALLOW_USERS and user_id not in ALLOW_USERS:
         return False
@@ -120,12 +132,14 @@ else:
 def on_app_mention(event, say):
     if event.get("bot_id"):
         return
-    text = event.get("text", "")
+    text = normalize_text(event.get("text", ""))
     user = event.get("user", "")
     channel = event.get("channel", "")
     if not is_allowed(user, channel, event.get("channel_type", "")):
         log_line(f"app_mention blocked for user {user} in {channel}")
         return
+    if not text:
+        text = "Hello! How can I help?"
     log_line(f"app_mention from {user}: {text}")
     try:
         response = run_openclaw(text)
@@ -148,12 +162,14 @@ def on_message(event, say):
         return
     if event.get("channel_type") != "im":
         return
-    text = event.get("text", "")
+    text = normalize_text(event.get("text", ""))
     user = event.get("user", "")
     channel = event.get("channel", "")
     if not is_allowed(user, channel, "im"):
         log_line(f"dm blocked for user {user} in {channel}")
         return
+    if not text:
+        text = "Hello! How can I help?"
     log_line(f"dm from {user}: {text}")
     try:
         response = run_openclaw(text)
@@ -174,7 +190,7 @@ def on_slash_claw(ack, body):
     ack()
     user = body.get("user_id", "")
     channel = body.get("channel_id", "")
-    text = body.get("text", "")
+    text = normalize_text(body.get("text", ""))
     if not is_allowed(user, channel, body.get("channel_type", "")):
         app.client.chat_postEphemeral(
             channel=channel,
@@ -182,6 +198,8 @@ def on_slash_claw(ack, body):
             text="Clawdbot: you are not authorized for this command.",
         )
         return
+    if not text:
+        text = "Hello! How can I help?"
     log_line(f"slash command from {user} in {channel}: {text}")
     try:
         response = run_openclaw(text)

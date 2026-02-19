@@ -91,7 +91,12 @@ def on_app_mention(event, say):
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
-        say(truncate(response), thread_ts=event.get("ts"))
+        app.client.chat_postMessage(
+            channel=event.get("channel"),
+            text=truncate(response),
+            thread_ts=event.get("ts"),
+        )
+        log_line("app_mention reply sent")
     except Exception as exc:
         log_line(f"app_mention send failed: {exc}")
 
@@ -110,7 +115,11 @@ def on_message(event, say):
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
-        say(truncate(response))
+        app.client.chat_postMessage(
+            channel=event.get("channel"),
+            text=truncate(response),
+        )
+        log_line("dm reply sent")
     except Exception as exc:
         log_line(f"dm send failed: {exc}")
 

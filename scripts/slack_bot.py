@@ -268,7 +268,7 @@ def maybe_local_response(text: str) -> Optional[str]:
     t = (text or "").lower()
     if not t:
         return None
-    if "latest" in t or "what's the latest" in t or "whats the latest" in t:
+    if t.startswith("/latest") or "latest" in t or "what's the latest" in t or "whats the latest" in t:
         summary = []
         summary.append("Latest summary:")
         summary.append(render_sprint_summary())
@@ -302,7 +302,13 @@ def _load_context_snippet(path: Path, max_chars: int = 1800) -> str:
 
 def build_codex_context() -> str:
     parts = [f"Repo root: {REPO_ROOT}", f"Today: {datetime.utcnow().strftime('%Y-%m-%d')}"]
-    for name in ["SUPERVISOR_MEMORY.md", "SUPERVISOR_BACKLOG.md", "SPRINT_BOARD.md", "RUNBOOK.md"]:
+    for name in [
+        "SUPERVISOR_MEMORY.md",
+        "SUPERVISOR_BACKLOG.md",
+        "SPRINT_BOARD.md",
+        "RUNBOOK.md",
+        "PERSIST.txt",
+    ]:
         path = REPO_ROOT / name
         snippet = _load_context_snippet(path)
         if snippet:

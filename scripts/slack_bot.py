@@ -38,6 +38,7 @@ CODEX_MODEL = os.environ.get("CODEX_MODEL", "gpt-4o-mini").strip()
 ALLOW_USERS = {u.strip() for u in os.environ.get("CLAWDBOT_ALLOW_USERS", "").split(",") if u.strip()}
 ALLOW_CHANNELS = {c.strip() for c in os.environ.get("CLAWDBOT_ALLOW_CHANNELS", "").split(",") if c.strip()}
 ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1", "true", "yes"}
+DM_ONLY = os.environ.get("CLAWDBOT_DM_ONLY", "false").strip().lower() in {"1", "true", "yes"}
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
     (
@@ -386,6 +387,9 @@ else:
 def on_app_mention(event, say):
     if event.get("bot_id"):
         return
+    if DM_ONLY:
+        log_line("app_mention ignored (DM-only mode)")
+        return
     text = normalize_text(event.get("text", ""))
     user = event.get("user", "")
     channel = event.get("channel", "")
@@ -468,6 +472,9 @@ def on_message(event, say):
 @app.command("/claw")
 def on_slash_claw(ack, body, respond):
     ack("Working on it...")
+    if DM_ONLY:
+        respond(text="DM-only mode enabled. Please DM me instead.", response_type="ephemeral")
+        return
     user = body.get("user_id", "")
     channel = body.get("channel_id", "")
     text = normalize_text(body.get("text", ""))

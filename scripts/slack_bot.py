@@ -146,13 +146,23 @@ def run_codex(user_text: str) -> str:
         return f"Clawdbot error: {exc}"
     usage = getattr(response, "usage", None)
     if usage:
-        usage_path = LOG_DIR / "codex_usage.log"
-        ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        usage_path.write_text(
-            usage_path.read_text() + f"[{ts}] model={CODEX_MODEL} prompt={usage.prompt_tokens} output={usage.output_tokens} total={usage.total_tokens}\n"
-            if usage_path.exists()
-            else f"[{ts}] model={CODEX_MODEL} prompt={usage.prompt_tokens} output={usage.output_tokens} total={usage.total_tokens}\n"
-        )
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        output_tokens = getattr(usage, "output_tokens", None)
+        total_tokens = getattr(usage, "total_tokens", None)
+        # Newer Responses API fields
+        if prompt_tokens is None:
+            prompt_tokens = getattr(usage, "input_tokens", None)
+        if output_tokens is None:
+            output_tokens = getattr(usage, "output_tokens", None) or getattr(usage, "output_tokens_total", None)
+        if total_tokens is None and prompt_tokens is not None and output_tokens is not None:
+            total_tokens = prompt_tokens + output_tokens
+        if prompt_tokens is not None or output_tokens is not None or total_tokens is not None:
+            usage_path = LOG_DIR / "codex_usage.log"
+            ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            line = f"[{ts}] model={CODEX_MODEL} prompt={prompt_tokens or 0} output={output_tokens or 0} total={total_tokens or 0}\n"
+            usage_path.write_text(
+                usage_path.read_text() + line if usage_path.exists() else line
+            )
     return getattr(response, "output_text", "").strip() or "No response."
 
 

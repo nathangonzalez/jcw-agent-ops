@@ -13,3 +13,5 @@ test-results/
 data/google/
 credentials.json
 token.json
+Slack/
+sc_manager.txt

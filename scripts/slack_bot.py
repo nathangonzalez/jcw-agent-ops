@@ -7,6 +7,9 @@ Responds to app mentions and direct messages using OpenClaw.
 import os
 import subprocess
 import shutil
+import logging
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +26,9 @@ if not BOT_TOKEN or not APP_TOKEN:
 
 OPENCLAW_AGENT = os.environ.get("CLAWDBOT_AGENT", "orchestrator")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "").strip()
+ALLOW_USERS = {u.strip() for u in os.environ.get("CLAWDBOT_ALLOW_USERS", "").split(",") if u.strip()}
+ALLOW_CHANNELS = {c.strip() for c in os.environ.get("CLAWDBOT_ALLOW_CHANNELS", "").split(",") if c.strip()}
+ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1", "true", "yes"}
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
     "You are Clawdbot. Do not take external actions. Provide guidance only. Ask for approval before any external action.",
@@ -30,6 +36,16 @@ SAFE_PREFIX = os.environ.get(
 
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", r"C:\Users\natha\dev\repos\agent-ops\agent_outputs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_PATH = LOG_DIR / "clawdbot_slack_runtime.log"
+
+LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler(sys.stdout)],
+)
+logging.getLogger("slack_bolt").setLevel(logging.INFO)
+logging.getLogger("slack_bolt.socket_mode").setLevel(logging.INFO)
 
 
 def log_line(message: str):
@@ -61,9 +77,20 @@ def run_openclaw(user_text: str) -> str:
         "--thinking",
         "low",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
+    except subprocess.TimeoutExpired:
+        log_line("openclaw timeout after 60s")
+        return "Clawdbot error: openclaw timed out after 60 seconds."
+    except Exception as exc:
+        log_line(f"openclaw invoke failed: {exc}")
+        return f"Clawdbot error: {exc}"
+    elapsed = time.monotonic() - start
     if proc.returncode != 0:
+        log_line(f"openclaw error ({proc.returncode}) in {elapsed:.1f}s")
         return f"Clawdbot error: {proc.stderr.strip() or 'unknown error'}"
+    log_line(f"openclaw ok in {elapsed:.1f}s")
     return proc.stdout.strip()
 
 
@@ -71,6 +98,16 @@ def truncate(text: str, limit: int = 3000) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
+    if ALLOW_USERS and user_id not in ALLOW_USERS:
+        return False
+    if channel_type == "im":
+        return ALLOW_DMS
+    if ALLOW_CHANNELS and channel_id not in ALLOW_CHANNELS:
+        return False
+    return True
 
 
 if SIGNING_SECRET:
@@ -85,6 +122,10 @@ def on_app_mention(event, say):
         return
     text = event.get("text", "")
     user = event.get("user", "")
+    channel = event.get("channel", "")
+    if not is_allowed(user, channel, event.get("channel_type", "")):
+        log_line(f"app_mention blocked for user {user} in {channel}")
+        return
     log_line(f"app_mention from {user}: {text}")
     try:
         response = run_openclaw(text)
@@ -109,6 +150,10 @@ def on_message(event, say):
         return
     text = event.get("text", "")
     user = event.get("user", "")
+    channel = event.get("channel", "")
+    if not is_allowed(user, channel, "im"):
+        log_line(f"dm blocked for user {user} in {channel}")
+        return
     log_line(f"dm from {user}: {text}")
     try:
         response = run_openclaw(text)
@@ -124,6 +169,32 @@ def on_message(event, say):
         log_line(f"dm send failed: {exc}")
 
 
+@app.command("/claw")
+def on_slash_claw(ack, body):
+    ack()
+    user = body.get("user_id", "")
+    channel = body.get("channel_id", "")
+    text = body.get("text", "")
+    if not is_allowed(user, channel, body.get("channel_type", "")):
+        app.client.chat_postEphemeral(
+            channel=channel,
+            user=user,
+            text="Clawdbot: you are not authorized for this command.",
+        )
+        return
+    log_line(f"slash command from {user} in {channel}: {text}")
+    try:
+        response = run_openclaw(text)
+    except Exception as exc:
+        response = f"Clawdbot error: {exc}"
+    app.client.chat_postMessage(channel=channel, text=truncate(response))
+
+
 if __name__ == "__main__":
+    log_line(
+        "clawdbot slack bot starting "
+        f"(agent={OPENCLAW_AGENT}, allow_users={len(ALLOW_USERS)}, "
+        f"allow_channels={len(ALLOW_CHANNELS)}, allow_dms={ALLOW_DMS})"
+    )
     handler = SocketModeHandler(app, APP_TOKEN)
     handler.start()

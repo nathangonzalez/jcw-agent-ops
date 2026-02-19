@@ -6,6 +6,7 @@ Responds to app mentions and direct messages using OpenClaw.
 
 import os
 import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,7 @@ if not BOT_TOKEN or not APP_TOKEN:
     raise SystemExit("Missing SLACK_BOT_TOKEN or SLACK_APP_TOKEN. See integrations/slack/README.md")
 
 OPENCLAW_AGENT = os.environ.get("CLAWDBOT_AGENT", "orchestrator")
+OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "").strip()
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
     "You are Clawdbot. Do not take external actions. Provide guidance only. Ask for approval before any external action.",
@@ -39,9 +41,18 @@ def log_line(message: str):
 
 
 def run_openclaw(user_text: str) -> str:
+    openclaw_cmd = OPENCLAW_BIN or shutil.which("openclaw") or shutil.which("openclaw.cmd")
+    if not openclaw_cmd:
+        # Common Windows global npm location
+        candidate = r"C:\Users\natha\AppData\Roaming\npm\openclaw.cmd"
+        if os.path.exists(candidate):
+            openclaw_cmd = candidate
+    if not openclaw_cmd:
+        return "Clawdbot error: openclaw command not found. Set OPENCLAW_BIN to full path."
+
     prompt = f"{SAFE_PREFIX}\n\nUser: {user_text}".strip()
     cmd = [
-        "openclaw",
+        openclaw_cmd,
         "agent",
         "--agent",
         OPENCLAW_AGENT,

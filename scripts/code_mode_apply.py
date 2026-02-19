@@ -164,8 +164,14 @@ def _manual_apply(diff_text: str, repo_root: Path) -> bool:
             raise SystemExit(f"Manual apply failed: file not found {rel_path}")
         lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
         for hunk in hunks:
-            if hunk["dels"]:
-                raise SystemExit("Manual apply failed: deletes present in diff.")
+            dels = hunk["dels"] or []
+            if dels:
+                # Treat delete lines as context if they exist in the target file.
+                missing = [d for d in dels if d not in lines]
+                if missing:
+                    raise SystemExit("Manual apply failed: deletes present in diff.")
+                # Convert deletes into context lines for insertion heuristics.
+                hunk["context"] = (hunk["context"] or []) + dels
             if not hunk["adds"]:
                 continue
             # Find insertion point: last matching context line
@@ -189,6 +195,22 @@ def _manual_apply(diff_text: str, repo_root: Path) -> bool:
         if applied_any:
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return applied_any
+
+
+def _adds_already_present(diff_text: str, repo_root: Path) -> bool:
+    files = _parse_unified_diff(diff_text)
+    if not files:
+        return False
+    for rel_path, hunks in files.items():
+        path = repo_root / rel_path
+        if not path.exists():
+            return False
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        for hunk in hunks:
+            for add in hunk["adds"]:
+                if add not in lines:
+                    return False
+    return True
 
 
 def main():
@@ -216,6 +238,10 @@ def main():
             print("Patch already applied.")
             return
     except SystemExit as exc:
+        # If all additions already exist, treat as already applied
+        if _adds_already_present(normalized, repo_root):
+            print("Patch already applied.")
+            return
         # Fallback to manual apply for add-only diffs
         try:
             if _manual_apply(normalized, repo_root):

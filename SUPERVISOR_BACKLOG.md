@@ -19,3 +19,4 @@
   - `/claw status` (sprint summary)
   - `/claw digest` (latest digest)
   - `/claw agent-status` (bot uptime + errors)
+ - patch click test 2

@@ -6,7 +6,6 @@ Responds to app mentions and direct messages using OpenClaw.
 
 import os
 import subprocess
-import textwrap
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +35,7 @@ def log_line(message: str):
     line = f"[{ts}] {message}"
     log_path = LOG_DIR / "clawdbot_slack.log"
     log_path.write_text(log_path.read_text() + line + "\n" if log_path.exists() else line + "\n")
+    print(line, flush=True)
 
 
 def run_openclaw(user_text: str) -> str:
@@ -89,7 +89,7 @@ def on_message(event, say):
     user = event.get("user", "")
     log_line(f"dm from {user}: {text}")
     response = run_openclaw(text)
-    say(truncate(response), thread_ts=event.get("ts"))
+    say(truncate(response))
 
 
 if __name__ == "__main__":

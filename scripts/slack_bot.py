@@ -296,7 +296,7 @@ def _load_context_snippet(path: Path, max_chars: int = 1800) -> str:
 
 
 def build_codex_context() -> str:
-    parts = [f"Repo root: {REPO_ROOT}"]
+    parts = [f"Repo root: {REPO_ROOT}", f"Today: {datetime.utcnow().strftime('%Y-%m-%d')}"]
     for name in ["SUPERVISOR_MEMORY.md", "SUPERVISOR_BACKLOG.md", "SPRINT_BOARD.md", "RUNBOOK.md"]:
         path = REPO_ROOT / name
         snippet = _load_context_snippet(path)

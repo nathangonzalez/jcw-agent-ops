@@ -41,3 +41,7 @@ decisions change.
 - No external actions without explicit approval.
 - Always log and report errors; keep summaries short and actionable.
 
+## Current User Requests
+- Build a modern suite dashboard (backlog cards, suite scaffold, visibility).
+- Reconcile weekly folders under `/repo/payroll/exports` against the payroll SQLite DB.
+- Slack interaction should feel like this chat: context-aware and specific.

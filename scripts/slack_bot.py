@@ -427,7 +427,7 @@ def on_message(event, say):
 
 
 @app.command("/claw")
-def on_slash_claw(ack, body):
+def on_slash_claw(ack, body, respond):
     ack("Working on it...")
     user = body.get("user_id", "")
     channel = body.get("channel_id", "")
@@ -455,7 +455,16 @@ def on_slash_claw(ack, body):
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     if should_send_reply(user, response):
-        app.client.chat_postMessage(channel=channel, text=truncate(response))
+        try:
+            respond(text=truncate(response), response_type="in_channel")
+            log_line("slash reply sent via respond")
+        except Exception as exc:
+            log_line(f"slash respond failed: {exc}")
+            try:
+                app.client.chat_postMessage(channel=channel, text=truncate(response))
+                log_line("slash reply sent via chat_postMessage")
+            except Exception as exc2:
+                log_line(f"slash reply failed: {exc2}")
     else:
         log_line("slash reply suppressed (duplicate)")
 

@@ -513,8 +513,8 @@ class TaskServer(BaseHTTPRequestHandler):
 
 
 def main():
-    host = os.environ.get("AGENT_OPS_HOST", "127.0.0.1")
-    port = int(os.environ.get("AGENT_OPS_PORT", "8090"))
+    host = os.environ.get("AGENT_OPS_HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT") or os.environ.get("AGENT_OPS_PORT") or "8090")
     server = HTTPServer((host, port), TaskServer)
     print(f"Task UI running at http://{host}:{port}")
     server.serve_forever()

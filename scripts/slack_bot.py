@@ -283,6 +283,15 @@ def maybe_local_response(text: str) -> Optional[str]:
     t = (text or "").lower()
     if not t:
         return None
+    if "uat" in t and "checklist" in t:
+        return "\n".join(
+            [
+                "UAT checklist:",
+                "- Suite dashboard: open /suite and verify sprint/backlog/ops panels load.",
+                "- Monitor: confirm 15-min report hits #jcw_bot (timer active).",
+                "- Payroll reconcile: run payroll_reconcile.py against exports + app.db and review deltas.",
+            ]
+        )
     if t.startswith("/latest") or "latest" in t or "what's the latest" in t or "whats the latest" in t:
         summary = []
         summary.append("Latest summary:")

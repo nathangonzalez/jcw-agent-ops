@@ -1,0 +1,6 @@
+runtime: python311
+service: agentops-webui
+entrypoint: python server.py
+env_variables:
+  AGENT_OPS_HOST: "0.0.0.0"
+  AGENT_OPS_PORT: "8080"

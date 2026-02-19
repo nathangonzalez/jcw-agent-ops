@@ -55,6 +55,7 @@ logging.getLogger("slack_bolt").setLevel(logging.INFO)
 logging.getLogger("slack_bolt.socket_mode").setLevel(logging.INFO)
 
 _LAST_REPLY: Dict[str, Tuple[str, float]] = {}
+_PENDING_APPROVALS: Dict[str, Dict[str, str]] = {}
 
 
 def log_line(message: str):
@@ -212,6 +213,49 @@ def maybe_local_response(text: str) -> Optional[str]:
     return None
 
 
+def build_approval_blocks(task: str, requester: str) -> list:
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Approval requested*\nTask: {task}"},
+        },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Requested by <@{requester}>"}],
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Approve"},
+                    "style": "primary",
+                    "action_id": "claw_approve",
+                    "value": "approve",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Reject"},
+                    "style": "danger",
+                    "action_id": "claw_reject",
+                    "value": "reject",
+                },
+            ],
+        },
+    ]
+
+
+def request_approval(channel: str, requester: str, task: str):
+    result = app.client.chat_postMessage(
+        channel=channel,
+        text=f"Approval requested: {task}",
+        blocks=build_approval_blocks(task, requester),
+    )
+    message_ts = result.get("ts")
+    if message_ts:
+        _PENDING_APPROVALS[message_ts] = {"task": task, "requester": requester, "channel": channel}
+
+
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
     if ALLOW_USERS and user_id not in ALLOW_USERS:
         return False
@@ -242,7 +286,15 @@ def on_app_mention(event, say):
         text = "Hello! How can I help?"
     log_line(f"app_mention from {user}: {text}")
     try:
-        response = maybe_local_response(text) or sanitize_response(run_openclaw(text))
+        local = maybe_local_response(text)
+        if local:
+            response = local
+        elif text.lower().startswith(("approve:", "request:")):
+            task = text.split(":", 1)[1].strip() or "Unspecified task"
+            request_approval(channel, user, task)
+            response = "Approval requested. Click Approve or Reject."
+        else:
+            response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -275,7 +327,15 @@ def on_message(event, say):
         text = "Hello! How can I help?"
     log_line(f"dm from {user}: {text}")
     try:
-        response = maybe_local_response(text) or sanitize_response(run_openclaw(text))
+        local = maybe_local_response(text)
+        if local:
+            response = local
+        elif text.lower().startswith(("approve:", "request:")):
+            task = text.split(":", 1)[1].strip() or "Unspecified task"
+            request_approval(channel, user, task)
+            response = "Approval requested. Click Approve or Reject."
+        else:
+            response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
@@ -308,13 +368,47 @@ def on_slash_claw(ack, body):
         text = "Hello! How can I help?"
     log_line(f"slash command from {user} in {channel}: {text}")
     try:
-        response = maybe_local_response(text) or sanitize_response(run_openclaw(text))
+        local = maybe_local_response(text)
+        if local:
+            response = local
+        elif text.lower().startswith("approve "):
+            task = text.split(" ", 1)[1].strip() or "Unspecified task"
+            request_approval(channel, user, task)
+            response = "Approval requested. Click Approve or Reject."
+        else:
+            response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     if should_send_reply(user, response):
         app.client.chat_postMessage(channel=channel, text=truncate(response))
     else:
         log_line("slash reply suppressed (duplicate)")
+
+
+@app.action("claw_approve")
+def on_claw_approve(ack, body):
+    ack()
+    message = body.get("message", {})
+    message_ts = message.get("ts")
+    if not message_ts or message_ts not in _PENDING_APPROVALS:
+        return
+    payload = _PENDING_APPROVALS.pop(message_ts)
+    task = payload["task"]
+    channel = payload["channel"]
+    try:
+        response = sanitize_response(run_openclaw(f"APPROVED TASK: {task}"))
+    except Exception as exc:
+        response = f"Clawdbot error: {exc}"
+    app.client.chat_postMessage(channel=channel, text=truncate(response))
+
+
+@app.action("claw_reject")
+def on_claw_reject(ack, body):
+    ack()
+    message = body.get("message", {})
+    message_ts = message.get("ts")
+    if message_ts and message_ts in _PENDING_APPROVALS:
+        _PENDING_APPROVALS.pop(message_ts, None)
 
 
 if __name__ == "__main__":

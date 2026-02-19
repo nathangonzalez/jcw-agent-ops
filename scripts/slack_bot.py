@@ -35,6 +35,7 @@ OPENCLAW_AGENT = os.environ.get("CLAWDBOT_AGENT", "orchestrator")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "").strip()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 CODEX_MODEL = os.environ.get("CODEX_MODEL", "gpt-4o-mini").strip()
+CODE_MODE_ENABLED = os.environ.get("CLAWDBOT_CODE_MODE", "true").strip().lower() in {"1", "true", "yes"}
 ALLOW_USERS = {u.strip() for u in os.environ.get("CLAWDBOT_ALLOW_USERS", "").split(",") if u.strip()}
 ALLOW_CHANNELS = {c.strip() for c in os.environ.get("CLAWDBOT_ALLOW_CHANNELS", "").split(",") if c.strip()}
 ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1", "true", "yes"}
@@ -66,6 +67,7 @@ logging.getLogger("slack_bolt.socket_mode").setLevel(logging.INFO)
 
 _LAST_REPLY: Dict[str, Tuple[str, float]] = {}
 _PENDING_APPROVALS: Dict[str, Dict[str, str]] = {}
+_PENDING_CODE: Dict[str, Dict[str, str]] = {}
 
 
 def log_line(message: str):
@@ -138,6 +140,15 @@ def run_codex(user_text: str) -> str:
         )
     except Exception as exc:
         return f"Clawdbot error: {exc}"
+    usage = getattr(response, "usage", None)
+    if usage:
+        usage_path = LOG_DIR / "codex_usage.log"
+        ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        usage_path.write_text(
+            usage_path.read_text() + f"[{ts}] model={CODEX_MODEL} prompt={usage.prompt_tokens} output={usage.output_tokens} total={usage.total_tokens}\n"
+            if usage_path.exists()
+            else f"[{ts}] model={CODEX_MODEL} prompt={usage.prompt_tokens} output={usage.output_tokens} total={usage.total_tokens}\n"
+        )
     return getattr(response, "output_text", "").strip() or "No response."
 
 
@@ -292,6 +303,46 @@ def parse_route(text: str) -> Tuple[str, str]:
     return ("codex" if CODEX_DEFAULT else "claw", cleaned)
 
 
+def is_code_request(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower().strip()
+    return lower.startswith("code ") or lower.startswith("code:") or lower.startswith("implement ") or lower.startswith("implement:")
+
+
+def run_code_mode(request_text: str) -> Tuple[str, str]:
+    """
+    Run code mode generator. Returns (status, payload)
+    status: ok|error
+    payload: summary or error
+    """
+    if not CODE_MODE_ENABLED:
+        return ("error", "Code mode is disabled.")
+    try:
+        from subprocess import run
+    except Exception as exc:
+        return ("error", f"Code mode error: {exc}")
+    out_dir = LOG_DIR / "code_mode"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    work_dir = out_dir / ts
+    work_dir.mkdir(parents=True, exist_ok=True)
+    req_path = work_dir / "request.txt"
+    req_path.write_text(request_text, encoding="utf-8")
+    cmd = [
+        "python3",
+        str(REPO_ROOT / "scripts" / "code_mode.py"),
+        "--request",
+        str(req_path),
+        "--out",
+        str(work_dir),
+    ]
+    proc = run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        return ("error", proc.stderr.strip() or "Code mode failed.")
+    return ("ok", work_dir.name)
+
+
 def _load_context_snippet(path: Path, max_chars: int = 1800) -> str:
     if not path.exists():
         return ""
@@ -374,6 +425,49 @@ def request_approval(channel: str, requester: str, task: str) -> str:
     return "Approval requested. Click Approve or Reject."
 
 
+def request_code_approval(channel: str, requester: str, job_id: str, summary: str) -> str:
+    try:
+        result = app.client.chat_postMessage(
+            channel=channel,
+            text=f"Code mode approval requested: {summary}",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*Code mode approval*\n{summary}"},
+                },
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": f"Requested by <@{requester}> | Job {job_id}"}],
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Apply Patch"},
+                            "style": "primary",
+                            "action_id": "code_apply",
+                            "value": job_id,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Reject"},
+                            "style": "danger",
+                            "action_id": "code_reject",
+                            "value": job_id,
+                        },
+                    ],
+                },
+            ],
+        )
+    except SlackApiError as exc:
+        return f"Code approval error: {exc.response.get('error')}"
+    message_ts = result.get("ts")
+    if message_ts:
+        _PENDING_CODE[message_ts] = {"job": job_id, "channel": channel}
+    return "Code mode proposal ready. Click Apply Patch to proceed."
+
+
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
     if ALLOW_USERS and user_id not in ALLOW_USERS:
         return False
@@ -413,7 +507,15 @@ def on_app_mention(event, say):
         else:
             route, payload = parse_route(text)
             if route == "codex":
-                response = sanitize_response(run_codex(payload))
+                if is_code_request(payload):
+                    status, result = run_code_mode(payload)
+                    if status == "ok":
+                        summary = f"Generated patch for request: {payload}"
+                        response = request_code_approval(channel, user, result, summary)
+                    else:
+                        response = result
+                else:
+                    response = sanitize_response(run_codex(payload))
             else:
                 local = maybe_local_response(payload)
                 if local:
@@ -460,7 +562,15 @@ def on_message(event, say):
         else:
             route, payload = parse_route(text)
             if route == "codex":
-                response = sanitize_response(run_codex(payload))
+                if is_code_request(payload):
+                    status, result = run_code_mode(payload)
+                    if status == "ok":
+                        summary = f"Generated patch for request: {payload}"
+                        response = request_code_approval(channel, user, result, summary)
+                    else:
+                        response = result
+                else:
+                    response = sanitize_response(run_codex(payload))
             else:
                 local = maybe_local_response(payload)
                 if local:
@@ -510,7 +620,15 @@ def on_slash_claw(ack, body, respond):
         else:
             route, payload = parse_route(text)
             if route == "codex":
-                response = sanitize_response(run_codex(payload))
+                if is_code_request(payload):
+                    status, result = run_code_mode(payload)
+                    if status == "ok":
+                        summary = f"Generated patch for request: {payload}"
+                        response = request_code_approval(channel, user, result, summary)
+                    else:
+                        response = result
+                else:
+                    response = sanitize_response(run_codex(payload))
             else:
                 local = maybe_local_response(payload)
                 if local:
@@ -560,6 +678,42 @@ def on_claw_reject(ack, body):
     message_ts = message.get("ts")
     if message_ts and message_ts in _PENDING_APPROVALS:
         _PENDING_APPROVALS.pop(message_ts, None)
+
+
+@app.action("code_apply")
+def on_code_apply(ack, body):
+    ack()
+    message = body.get("message", {})
+    message_ts = message.get("ts")
+    if not message_ts or message_ts not in _PENDING_CODE:
+        return
+    payload = _PENDING_CODE.pop(message_ts)
+    job_id = payload["job"]
+    channel = payload["channel"]
+    try:
+        from subprocess import run
+        cmd = [
+            "python3",
+            str(REPO_ROOT / "scripts" / "code_mode_apply.py"),
+            "--job",
+            str((LOG_DIR / "code_mode" / job_id)),
+        ]
+        proc = run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            app.client.chat_postMessage(channel=channel, text=f"Code apply failed: {proc.stderr.strip()}")
+            return
+        app.client.chat_postMessage(channel=channel, text=proc.stdout.strip() or "Code patch applied.")
+    except Exception as exc:
+        app.client.chat_postMessage(channel=channel, text=f"Code apply error: {exc}")
+
+
+@app.action("code_reject")
+def on_code_reject(ack, body):
+    ack()
+    message = body.get("message", {})
+    message_ts = message.get("ts")
+    if message_ts and message_ts in _PENDING_CODE:
+        _PENDING_CODE.pop(message_ts, None)
 
 
 if __name__ == "__main__":

@@ -63,6 +63,18 @@ def main():
     runtime_recent = read_recent_lines(runtime_log, since)
     runtime_errors = sum(1 for line in runtime_recent if "error" in line.lower())
 
+    usage_log = LOG_DIR / "codex_usage.log"
+    usage_recent = read_recent_lines(usage_log, since)
+    prompt_tokens = 0
+    output_tokens = 0
+    for line in usage_recent:
+        parts = line.split()
+        for part in parts:
+            if part.startswith("prompt="):
+                prompt_tokens += int(part.split("=", 1)[1])
+            if part.startswith("output="):
+                output_tokens += int(part.split("=", 1)[1])
+
     last_event = recent[-1] if recent else "No events in last hour."
 
     text = (
@@ -72,6 +84,7 @@ def main():
         f"- Mentions: {mentions}\n"
         f"- Replies sent: {replies}\n"
         f"- Errors (log/runtime): {errors}/{runtime_errors}\n"
+        f"- Codex tokens (prompt/output): {prompt_tokens}/{output_tokens}\n"
         f"- Last event: {last_event}"
     )
 

@@ -57,6 +57,8 @@ LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", r"C:\Users\natha\dev\repos\age
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / "clawdbot_slack_runtime.log"
 REPO_ROOT = Path(os.environ.get("CLAWDBOT_REPO_ROOT", r"C:\Users\natha\dev\repos\agent-ops"))
+RELAY_DIR = Path(os.environ.get("CLAWDBOT_RELAY_DIR", str(LOG_DIR / "relay")))
+RELAY_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -120,7 +122,7 @@ def run_openclaw(user_text: str) -> str:
     return proc.stdout.strip()
 
 
-def run_codex(user_text: str) -> str:
+def run_codex(user_text: str, relay_context: str = "") -> str:
     if not OPENAI_API_KEY:
         return "Clawdbot error: OPENAI_API_KEY is not set."
     if OpenAI is None:
@@ -132,6 +134,8 @@ def run_codex(user_text: str) -> str:
         "Avoid generic helpdesk language. If something is missing, ask a precise question."
     )
     prompt = f"{SAFE_PREFIX}\n\n{context}".strip()
+    if relay_context:
+        prompt = f"{prompt}\n\n[Relay Context]\n{relay_context}".strip()
     client = OpenAI(api_key=OPENAI_API_KEY)
     try:
         response = client.responses.create(
@@ -390,6 +394,26 @@ def build_codex_context() -> str:
     return "\n".join(parts)
 
 
+def relay_path(channel_type: str, channel_id: str, user_id: str) -> Path:
+    if channel_type == "im":
+        return RELAY_DIR / f"dm_{user_id}.md"
+    return RELAY_DIR / f"channel_{channel_id}.md"
+
+
+def relay_append(path: Path, role: str, text: str):
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    line = f"[{ts}] {role}: {text}\n"
+    path.write_text(path.read_text(encoding="utf-8", errors="ignore") + line if path.exists() else line, encoding="utf-8")
+
+
+def relay_tail(path: Path, max_lines: int = 20) -> str:
+    if not path.exists():
+        return ""
+    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    tail = lines[-max_lines:]
+    return "\n".join(tail).strip()
+
+
 def build_approval_blocks(task: str, requester: str) -> list:
     return [
         {
@@ -575,6 +599,7 @@ def on_message(event, say):
     channel = event.get("channel", "")
 
     # DM flow
+    relay_file = relay_path(channel_type, channel, user)
     if channel_type == "im":
         if not is_allowed(user, channel, "im"):
             log_line(f"dm blocked for user {user} in {channel}")
@@ -595,6 +620,8 @@ def on_message(event, say):
             if CHANNEL_PREFIX and not text.lower().startswith(CHANNEL_PREFIX.lower()):
                 return
         log_line(f"channel msg from {user} in {channel}: {text}")
+    # Persist relay input
+    relay_append(relay_file, "user", text)
     try:
         if text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
@@ -610,7 +637,8 @@ def on_message(event, say):
                     else:
                         response = result
                 else:
-                    response = sanitize_response(run_codex(payload))
+                    relay_context = relay_tail(relay_file)
+                    response = sanitize_response(run_codex(payload, relay_context=relay_context))
             else:
                 local = maybe_local_response(payload)
                 if local:
@@ -627,6 +655,7 @@ def on_message(event, say):
                 channel=event.get("channel"),
                 text=truncate(response),
             )
+            relay_append(relay_file, "assistant", response)
             if channel_type == "im":
                 log_line("dm reply sent")
             else:

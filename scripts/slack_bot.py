@@ -175,7 +175,7 @@ def should_send_reply(user_id: str, response: str) -> bool:
 
 
 def _extract_section(text: str, header: str) -> str:
-    pattern = rf"\\*\\*{re.escape(header)}\\*\\*\\n(.*?)(\\n\\*\\*|\\Z)"
+    pattern = rf"\\*\\*{re.escape(header)}\\*\\*\\r?\\n(.*?)(\\r?\\n\\*\\*|\\Z)"
     match = re.search(pattern, text, flags=re.DOTALL)
     if not match:
         return ""
@@ -189,7 +189,7 @@ def render_sprint_summary() -> str:
     if not sprint_path.exists():
         return "Sprint board not found."
     text = sprint_path.read_text(encoding="utf-8", errors="ignore")
-    lane_match = re.search(r"\\*\\*Lane Summaries.*?\\*\\*\\n(.*?)\\n---", text, flags=re.DOTALL)
+    lane_match = re.search(r"\\*\\*Lane Summaries.*?\\*\\*\\r?\\n(.*?)\\r?\\n---", text, flags=re.DOTALL)
     lane_lines = ""
     if lane_match:
         lane_lines = "\n".join(

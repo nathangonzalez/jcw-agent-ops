@@ -116,12 +116,22 @@ def run_codex(user_text: str) -> str:
         return "Clawdbot error: OPENAI_API_KEY is not set."
     if OpenAI is None:
         return "Clawdbot error: openai package not installed."
-    prompt = f"{SAFE_PREFIX}\n\nUser: {user_text}".strip()
+    context = build_codex_context()
+    system = (
+        "You are Codex, the supervisor for the jcw-agent-ops repo. "
+        "Use the repo context below. Be specific and actionable. "
+        "Avoid generic helpdesk language. If something is missing, ask a precise question."
+    )
+    prompt = f"{SAFE_PREFIX}\n\n{context}".strip()
     client = OpenAI(api_key=OPENAI_API_KEY)
     try:
         response = client.responses.create(
             model=CODEX_MODEL,
-            input=prompt,
+            input=[
+                {"role": "system", "content": system},
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_text},
+            ],
         )
     except Exception as exc:
         return f"Clawdbot error: {exc}"
@@ -271,6 +281,24 @@ def maybe_codex_response(text: str) -> Optional[str]:
     if lower.startswith("codex "):
         return run_codex(text.split(" ", 1)[1].strip())
     return None
+
+
+def _load_context_snippet(path: Path, max_chars: int = 1800) -> str:
+    if not path.exists():
+        return ""
+    raw = path.read_text(encoding="utf-8", errors="ignore")
+    snippet = raw.strip()[:max_chars]
+    return snippet
+
+
+def build_codex_context() -> str:
+    parts = [f"Repo root: {REPO_ROOT}"]
+    for name in ["SUPERVISOR_MEMORY.md", "SUPERVISOR_BACKLOG.md", "SPRINT_BOARD.md", "RUNBOOK.md"]:
+        path = REPO_ROOT / name
+        snippet = _load_context_snippet(path)
+        if snippet:
+            parts.append(f"\n[{name}]\n{snippet}")
+    return "\n".join(parts)
 
 
 def build_approval_blocks(task: str, requester: str) -> list:

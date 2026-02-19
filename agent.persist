@@ -168,3 +168,4 @@ powershell -File safe-promote.ps1 <old_version>
 2026-02-18 14:59:10 | SESSION: created tasks/SPRINT_BOARD.md with lane summaries and ready queue
 2026-02-18 15:06:40 | SESSION: created infra/product/finance/inventory docs and updated sprint board; copied SPRINT_BOARD.md to repo root
 2026-02-18 15:20:20 | SESSION: added Playwright UAT demo (playwright.config.js, tests/uat-demo.spec.js) and RUNBOOK steps
+2026-02-19 09:12:00 | FIX: added ESC + backdrop click to close draft modal

@@ -368,6 +368,16 @@ syncExcelBtn.addEventListener("click", async () => {
 tabEmail.addEventListener("click", () => setDraftMode("email"));
 tabEvent.addEventListener("click", () => setDraftMode("event"));
 draftClose.addEventListener("click", closeDraftModal);
+draftModal.addEventListener("click", (event) => {
+  if (event.target === draftModal) {
+    closeDraftModal();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !draftModal.classList.contains("hidden")) {
+    closeDraftModal();
+  }
+});
 
 emailPreview.addEventListener("click", async () => {
   try {

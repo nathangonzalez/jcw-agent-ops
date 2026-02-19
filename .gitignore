@@ -7,6 +7,9 @@ data/
 .openclaw/
 agent_outputs/
 __pycache__/
+node_modules/
+package-lock.json
+test-results/
 data/google/
 credentials.json
 token.json

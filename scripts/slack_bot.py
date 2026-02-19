@@ -217,6 +217,9 @@ def strip_ansi(text: str) -> str:
     # Remove ANSI escape sequences and control characters
     text = re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
+    # Remove common leftover terminal fragments (e.g. "[?25l", "[90m")
+    text = re.sub(r"\[\?[0-9]+[a-zA-Z]", "", text)
+    text = re.sub(r"\[[0-9;]{1,5}m", "", text)
     return text
 
 
@@ -233,6 +236,8 @@ def render_digest_summary() -> str:
     for line in lines:
         line = strip_ansi(line).strip()
         if not line:
+            continue
+        if re.fullmatch(r"[\|\-_=*`]+", line):
             continue
         lower = line.lower()
         if "temporary outage" in lower or "web fetching" in lower or "api restored" in lower:

@@ -9,6 +9,7 @@ import subprocess
 import shutil
 import logging
 import re
+from typing import Dict, Tuple
 import sys
 import time
 from datetime import datetime
@@ -51,6 +52,8 @@ logging.basicConfig(
 )
 logging.getLogger("slack_bolt").setLevel(logging.INFO)
 logging.getLogger("slack_bolt.socket_mode").setLevel(logging.INFO)
+
+_LAST_REPLY: Dict[str, Tuple[str, float]] = {}
 
 
 def log_line(message: str):
@@ -112,6 +115,39 @@ def normalize_text(text: str) -> str:
     return cleaned
 
 
+def is_compliance_reply(text: str) -> bool:
+    if not text:
+        return True
+    head = text.strip()[:160].lower()
+    compliance_hits = [
+        "understood",
+        "acknowledged",
+        "confirmed",
+        "guidance only",
+        "no external actions",
+        "rule",
+        "compliance",
+    ]
+    return any(hit in head for hit in compliance_hits)
+
+
+def sanitize_response(text: str) -> str:
+    if is_compliance_reply(text):
+        return "Hi! Tell me what you want to accomplish and I’ll help."
+    return text
+
+
+def should_send_reply(user_id: str, response: str) -> bool:
+    now = time.time()
+    previous = _LAST_REPLY.get(user_id)
+    if previous:
+        last_text, last_ts = previous
+        if response == last_text and (now - last_ts) < 60:
+            return False
+    _LAST_REPLY[user_id] = (response, now)
+    return True
+
+
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
     if ALLOW_USERS and user_id not in ALLOW_USERS:
         return False
@@ -142,16 +178,20 @@ def on_app_mention(event, say):
         text = "Hello! How can I help?"
     log_line(f"app_mention from {user}: {text}")
     try:
-        response = run_openclaw(text)
+        response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
-        app.client.chat_postMessage(
-            channel=event.get("channel"),
-            text=truncate(response),
-            thread_ts=event.get("ts"),
-        )
-        log_line("app_mention reply sent")
+        user = event.get("user", "")
+        if should_send_reply(user, response):
+            app.client.chat_postMessage(
+                channel=event.get("channel"),
+                text=truncate(response),
+                thread_ts=event.get("ts"),
+            )
+            log_line("app_mention reply sent")
+        else:
+            log_line("app_mention reply suppressed (duplicate)")
     except Exception as exc:
         log_line(f"app_mention send failed: {exc}")
 
@@ -172,15 +212,18 @@ def on_message(event, say):
         text = "Hello! How can I help?"
     log_line(f"dm from {user}: {text}")
     try:
-        response = run_openclaw(text)
+        response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     try:
-        app.client.chat_postMessage(
-            channel=event.get("channel"),
-            text=truncate(response),
-        )
-        log_line("dm reply sent")
+        if should_send_reply(user, response):
+            app.client.chat_postMessage(
+                channel=event.get("channel"),
+                text=truncate(response),
+            )
+            log_line("dm reply sent")
+        else:
+            log_line("dm reply suppressed (duplicate)")
     except Exception as exc:
         log_line(f"dm send failed: {exc}")
 
@@ -202,10 +245,13 @@ def on_slash_claw(ack, body):
         text = "Hello! How can I help?"
     log_line(f"slash command from {user} in {channel}: {text}")
     try:
-        response = run_openclaw(text)
+        response = sanitize_response(run_openclaw(text))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
-    app.client.chat_postMessage(channel=channel, text=truncate(response))
+    if should_send_reply(user, response):
+        app.client.chat_postMessage(channel=channel, text=truncate(response))
+    else:
+        log_line("slash reply suppressed (duplicate)")
 
 
 if __name__ == "__main__":

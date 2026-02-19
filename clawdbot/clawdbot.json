@@ -1,0 +1,28 @@
+{
+  "version": "v1",
+  "name": "clawdbot",
+  "repoRoot": "C:\\Users\\natha\\dev\\repos",
+  "includePatterns": ["jcw-*", "jcw_*", "jcw_payroll", "jcw_financials"],
+  "excludePatterns": ["output"],
+  "cadence": {
+    "daily": "06:00",
+    "midday": "12:00",
+    "timezone": "America/Denver"
+  },
+  "actions": {
+    "readOnly": false,
+    "allowDrafts": true,
+    "allowPRs": true,
+    "allowMerge": false
+  },
+  "tools": {
+    "webSearch": true,
+    "webFetch": true,
+    "emailPosting": false
+  },
+  "runs": {
+    "lanes": true,
+    "inventory": true,
+    "researchDigest": true
+  }
+}

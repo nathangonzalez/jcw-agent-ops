@@ -53,6 +53,12 @@ npm run uat:demo
 ```
 Video + trace will appear under `test-results/` for the demo run.
 
+**Clawdbot v1 (continuous development)**:
+```powershell
+scripts\clawdbot_run.ps1
+```
+Config: `clawdbot/clawdbot.json`
+
 **Sync Tasks back to Excel (All Tasks)**:
 ```powershell
 scripts\actions_writeback.ps1 -InputPath "C:\Users\natha\Downloads\Actions.xlsx"

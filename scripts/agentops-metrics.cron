@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Ops metrics to Firestore every 15 minutes
+*/15 * * * * root /opt/agent-ops/scripts/collect_ops_metrics.py >> /opt/agent-ops/agent_outputs/cron_metrics.log 2>&1

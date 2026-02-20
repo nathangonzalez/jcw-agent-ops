@@ -38,15 +38,18 @@ def main():
     total_hours = cur.fetchone()[0] or 0
     cur.execute("SELECT MIN(work_date), MAX(work_date) FROM time_entries")
     min_date, max_date = cur.fetchone()
-    cur.execute("SELECT COUNT(DISTINCT employee_name) FROM time_entries")
-    employees = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(DISTINCT employee_id) FROM time_entries")
+    employees_in_entries = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM employees")
+    total_employees = cur.fetchone()[0]
     conn.close()
 
     print("Payroll DB Summary")
     print(f"- DB: {db_path}")
     print(f"- Entries: {total_entries}")
     print(f"- Total hours: {float(total_hours):.2f}")
-    print(f"- Employees: {employees}")
+    print(f"- Employees (in entries): {employees_in_entries}")
+    print(f"- Employees (total): {total_employees}")
     print(f"- Date range: {fmt_date(min_date)} to {fmt_date(max_date)}")
 
 

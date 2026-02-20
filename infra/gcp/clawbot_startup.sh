@@ -48,6 +48,9 @@ CLAWDBOT_LOG_LEVEL=INFO
 CLAWDBOT_MONITOR_INTERVAL_MIN=15
 AGENT_OPS_HOST=127.0.0.1
 AGENT_OPS_PORT=8091
+RELAY_HOST=127.0.0.1
+RELAY_PORT=8092
+CLAWDBOT_RELAY_URL=http://127.0.0.1:8092
 EOF
 
 cat >/etc/systemd/system/clawbot.service <<'EOF'
@@ -68,5 +71,23 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+cat >/etc/systemd/system/agentops-relay.service <<'EOF'
+[Unit]
+Description=Agent Ops Relay Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/clawbot.env
+WorkingDirectory=/opt/agent-ops
+ExecStart=/usr/bin/python3 /opt/agent-ops/scripts/relay_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
-systemctl enable --now clawbot.service
+systemctl enable --now clawbot.service agentops-relay.service

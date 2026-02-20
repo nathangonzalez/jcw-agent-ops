@@ -7,6 +7,7 @@ ENV_FILE="/etc/clawbot.env"
 sudo cp "$APP_DIR/infra/systemd/clawbot-monitor.service" /etc/systemd/system/clawbot-monitor.service
 sudo cp "$APP_DIR/infra/systemd/clawbot-monitor.timer" /etc/systemd/system/clawbot-monitor.timer
 sudo cp "$APP_DIR/infra/systemd/agentops-webui.service" /etc/systemd/system/agentops-webui.service
+sudo cp "$APP_DIR/infra/systemd/agentops-relay.service" /etc/systemd/system/agentops-relay.service
 
 if [ -f "$ENV_FILE" ]; then
   if ! grep -q "CLAWDBOT_MONITOR_INTERVAL_MIN" "$ENV_FILE"; then
@@ -18,11 +19,22 @@ if [ -f "$ENV_FILE" ]; then
   if ! grep -q "AGENT_OPS_PORT" "$ENV_FILE"; then
     echo "AGENT_OPS_PORT=8091" | sudo tee -a "$ENV_FILE" >/dev/null
   fi
+  if ! grep -q "RELAY_HOST" "$ENV_FILE"; then
+    echo "RELAY_HOST=127.0.0.1" | sudo tee -a "$ENV_FILE" >/dev/null
+  fi
+  if ! grep -q "RELAY_PORT" "$ENV_FILE"; then
+    echo "RELAY_PORT=8092" | sudo tee -a "$ENV_FILE" >/dev/null
+  fi
+  if ! grep -q "CLAWDBOT_RELAY_URL" "$ENV_FILE"; then
+    echo "CLAWDBOT_RELAY_URL=http://127.0.0.1:8092" | sudo tee -a "$ENV_FILE" >/dev/null
+  fi
 fi
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now clawbot-monitor.timer
 sudo systemctl enable --now agentops-webui.service
+sudo systemctl enable --now agentops-relay.service
 
 sudo systemctl status clawbot-monitor.timer --no-pager
 sudo systemctl status agentops-webui.service --no-pager
+sudo systemctl status agentops-relay.service --no-pager

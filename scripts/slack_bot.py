@@ -18,6 +18,8 @@ from pathlib import Path
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 try:
     from openai import OpenAI
 except Exception:  # pragma: no cover - optional dependency
@@ -59,6 +61,7 @@ LOG_PATH = LOG_DIR / "clawdbot_slack_runtime.log"
 REPO_ROOT = Path(os.environ.get("CLAWDBOT_REPO_ROOT", r"C:\Users\natha\dev\repos\agent-ops"))
 RELAY_DIR = Path(os.environ.get("CLAWDBOT_RELAY_DIR", str(LOG_DIR / "relay")))
 RELAY_DIR.mkdir(parents=True, exist_ok=True)
+RELAY_URL = os.environ.get("CLAWDBOT_RELAY_URL", "http://127.0.0.1:8092").strip()
 
 LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -394,24 +397,19 @@ def build_codex_context() -> str:
     return "\n".join(parts)
 
 
-def relay_path(channel_type: str, channel_id: str, user_id: str) -> Path:
-    if channel_type == "im":
-        return RELAY_DIR / f"dm_{user_id}.md"
-    return RELAY_DIR / f"channel_{channel_id}.md"
-
-
-def relay_append(path: Path, role: str, text: str):
-    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    line = f"[{ts}] {role}: {text}\n"
-    path.write_text(path.read_text(encoding="utf-8", errors="ignore") + line if path.exists() else line, encoding="utf-8")
-
-
-def relay_tail(path: Path, max_lines: int = 20) -> str:
-    if not path.exists():
-        return ""
-    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-    tail = lines[-max_lines:]
-    return "\n".join(tail).strip()
+def relay_post(path: str, payload: dict, timeout: int = 6) -> Optional[dict]:
+    if not RELAY_URL:
+        return None
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = Request(f"{RELAY_URL}{path}", data=data, headers={"Content-Type": "application/json"})
+        with urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw)
+    except URLError:
+        return None
+    except Exception:
+        return None
 
 
 def build_approval_blocks(task: str, requester: str) -> list:
@@ -599,7 +597,7 @@ def on_message(event, say):
     channel = event.get("channel", "")
 
     # DM flow
-    relay_file = relay_path(channel_type, channel, user)
+    relay_key_payload = {"channel_type": channel_type, "channel_id": channel, "user_id": user}
     if channel_type == "im":
         if not is_allowed(user, channel, "im"):
             log_line(f"dm blocked for user {user} in {channel}")
@@ -620,8 +618,8 @@ def on_message(event, say):
             if CHANNEL_PREFIX and not text.lower().startswith(CHANNEL_PREFIX.lower()):
                 return
         log_line(f"channel msg from {user} in {channel}: {text}")
-    # Persist relay input
-    relay_append(relay_file, "user", text)
+    # Persist relay input (relay service)
+    relay_post("/relay/message", {**relay_key_payload, "role": "user", "text": text})
     try:
         if text.lower().startswith(("approve:", "request:")):
             task = text.split(":", 1)[1].strip() or "Unspecified task"
@@ -637,7 +635,18 @@ def on_message(event, say):
                     else:
                         response = result
                 else:
-                    relay_context = relay_tail(relay_file)
+                    relay_context = ""
+                    relay_ctx = relay_post("/relay/context", {**relay_key_payload, "limit": 20})
+                    if relay_ctx:
+                        summary = (relay_ctx.get("summary") or "").strip()
+                        tail = relay_ctx.get("tail") or []
+                        tail_lines = []
+                        for row in tail:
+                            role = row.get("role", "")
+                            msg = row.get("text", "")
+                            if msg:
+                                tail_lines.append(f\"{role}: {msg}\")
+                        relay_context = \"\\n\".join([line for line in ([summary] + tail_lines) if line])
                     response = sanitize_response(run_codex(payload, relay_context=relay_context))
             else:
                 local = maybe_local_response(payload)
@@ -655,7 +664,7 @@ def on_message(event, say):
                 channel=event.get("channel"),
                 text=truncate(response),
             )
-            relay_append(relay_file, "assistant", response)
+            relay_post("/relay/message", {**relay_key_payload, "role": "assistant", "text": response})
             if channel_type == "im":
                 log_line("dm reply sent")
             else:

@@ -10,12 +10,30 @@
     <div class="bg-orb orb-1"></div>
     <div class="bg-orb orb-2"></div>
     <div class="bg-orb orb-3"></div>
+    <div class="bg-grid"></div>
+
+    <header class="top-nav">
+      <div class="brand">
+        <span class="brand-mark">JCW</span>
+        <span class="brand-text">Suite Ops</span>
+      </div>
+      <nav class="nav-links">
+        <a href="/suite" class="nav-link active">Dashboard</a>
+        <a href="/" class="nav-link">Tasks</a>
+        <a href="#apps" class="nav-link">App Store</a>
+        <a href="#ops" class="nav-link">Ops</a>
+      </nav>
+      <div class="nav-actions">
+        <button id="refresh" class="btn">Refresh All</button>
+        <a class="btn ghost" href="/">All Tasks</a>
+      </div>
+    </header>
 
     <header class="hero">
       <div class="hero-left">
-        <div class="eyebrow">JCW Suite</div>
-        <h1>App Store + Ops</h1>
-        <p>Launch modules, view sprint flow, and approve agent work.</p>
+        <div class="eyebrow">JCW Enterprise</div>
+        <h1>Mission Control for the JCW Suite</h1>
+        <p>Launch modules, track sprint flow, and audit agent operations in one place.</p>
       </div>
       <div class="hero-right">
         <div class="stats">
@@ -35,14 +53,7 @@
       </div>
     </header>
 
-    <section class="panel">
-      <div class="suite-actions">
-        <button id="refresh" class="btn">Refresh All</button>
-        <a class="btn ghost" href="/">All Tasks</a>
-      </div>
-    </section>
-
-    <section class="panel app-panel">
+    <section id="apps" class="panel app-panel">
       <div class="panel-header">
         <h2>JCW App Store</h2>
         <span class="statusline">Modules in the suite</span>
@@ -50,7 +61,7 @@
       <div id="app-grid" class="app-grid"></div>
     </section>
 
-    <section class="suite-grid">
+    <section id="ops" class="suite-grid">
       <div class="panel">
         <div class="panel-header">
           <h2>Sprint Board</h2>

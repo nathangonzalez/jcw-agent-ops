@@ -16,6 +16,7 @@
 - Suite: app store data feed (populate `data/suite_apps.json`).
 - OpenClaw visibility: show gateway status + error rate in Suite Ops.
 - 24/7 research crawler: daily digests + backlog refinement spikes.
+- JCW main website upgrade (jcweltonconstruction.com) discovery + redesign plan.
 
 ## P2 - Enhancements
 - Create a persistent memory file (`PERSIST.txt`) and a summary updater.

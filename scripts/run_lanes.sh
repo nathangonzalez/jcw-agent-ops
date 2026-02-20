@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ -f /etc/clawbot.env ]; then
+  set -a
+  . /etc/clawbot.env
+  set +a
+fi
+
 OUT_ROOT="${1:-/opt/agent-ops/agent_outputs}"
 LANE_AGENT="${CLAW_LANE_AGENT:-main}"
 ts="$(date -u +%Y%m%d-%H%M%S)"
@@ -12,5 +18,9 @@ openclaw agent --agent "$LANE_AGENT" --message "Product Lane: Define suite-shell
 openclaw agent --agent "$LANE_AGENT" --message "Finance Lane: Draft ledger taxonomy v1 + manual review triggers + cash flow phase mapping. Output headings and bullets." --thinking low > "${outdir}/lane_finance.md"
 openclaw agent --agent "$LANE_AGENT" --message "Scout Lane: Create repo inventory template and populate any entries you can from local context. Include stack, deploy method, datastore, owners, risks. Output markdown table." --thinking low > "${outdir}/lane_scout.md"
 openclaw agent --agent "$LANE_AGENT" --message "Research Lane: Build a short backlog of 5 agentic modeling spikes (papers/podcasts/tools). Include goal, hypothesis, evaluation, and minimal source list. Output concise markdown." --thinking low > "${outdir}/lane_research.md"
+
+if [ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${CLAWDBOT_MONITOR_CHANNEL:-}" ]; then
+  python3 /opt/agent-ops/scripts/post_lanes_summary.py "$outdir" || true
+fi
 
 echo "Lane outputs written to ${outdir}"

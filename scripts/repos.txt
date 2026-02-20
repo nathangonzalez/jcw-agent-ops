@@ -1,0 +1,20 @@
+# JCW repos to sync + crawl
+# Format: owner/repo
+# Excludes personal/migrator/sample repos by default.
+
+nathangonzalez/jcw-suite
+nathangonzalez/jcw_payroll
+nathangonzalez/jcw_financials
+nathangonzalez/jcw-estimator-pro
+nathangonzalez/estimator-backend
+nathangonzalez/ConstructionEstimator3.0
+nathangonzalez/ConstructionEstimator2.0
+nathangonzalez/ConstructionEstimator
+nathangonzalez/jcw_estimate
+nathangonzalez/jcw_estimate_android
+nathangonzalez/jcw_ai_estimator
+nathangonzalez/jcw_estimate_ai-
+nathangonzalez/jcw-2-admin
+nathangonzalez/jcw-2-android-estimator
+# Archived (keep for mining)
+nathangonzalez/jcw-enterprise-suite

@@ -71,7 +71,8 @@ def main():
         datastore = detect_datastore(entry)
         rows.append((entry.name, stack, deploy, datastore))
 
-    out = repo_root / "agent-ops" / "inventory" / "repo_inventory.md"
+    out_override = os.environ.get("JCW_REPO_OUTPUT", "")
+    out = Path(out_override) if out_override else repo_root / "agent-ops" / "inventory" / "repo_inventory.md"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [

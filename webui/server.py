@@ -9,10 +9,16 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+try:
+    from google.cloud import firestore  # type: ignore
+except Exception:
+    firestore = None
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR.parent
@@ -25,6 +31,20 @@ BACKLOG_PATH = REPO_ROOT / "SUPERVISOR_BACKLOG.md"
 OPS_LOG = REPO_ROOT / "agent_outputs" / "clawdbot_slack.log"
 RUNTIME_LOG = REPO_ROOT / "agent_outputs" / "clawdbot_slack_runtime.log"
 APPS_PATH = REPO_ROOT / "data" / "suite_apps.json"
+FIRESTORE_ENABLED = os.environ.get("FIRESTORE_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+FIRESTORE_PROJECT_ID = os.environ.get("FIRESTORE_PROJECT_ID", "").strip()
+METRICS_DOC = os.environ.get("OPS_METRICS_DOC", "ops_metrics/current").strip()
+
+_FS_CLIENT = None
+
+
+def firestore_client():
+    global _FS_CLIENT
+    if not FIRESTORE_ENABLED or firestore is None:
+        return None
+    if _FS_CLIENT is None:
+        _FS_CLIENT = firestore.Client(project=FIRESTORE_PROJECT_ID or None)
+    return _FS_CLIENT
 
 
 def row_to_dict(row, columns):
@@ -65,6 +85,21 @@ def compute_ops_summary():
         "last_event": last_event,
         "log_path": str(OPS_LOG),
     }
+
+
+def fetch_ops_metrics():
+    client = firestore_client()
+    if not client:
+        return {"error": "firestore disabled"}
+    if "/" in METRICS_DOC:
+        collection, doc_id = METRICS_DOC.split("/", 1)
+    else:
+        collection, doc_id = "ops_metrics", METRICS_DOC
+    doc = client.collection(collection).document(doc_id).get()
+    if not doc.exists:
+        return {"error": "metrics not found"}
+    payload = doc.to_dict() or {}
+    return payload
 
 
 class TaskServer(BaseHTTPRequestHandler):
@@ -151,6 +186,9 @@ class TaskServer(BaseHTTPRequestHandler):
         if path == "/api/ops":
             self._send_json(compute_ops_summary())
             return
+        if path == "/api/metrics":
+            self._send_json(fetch_ops_metrics())
+            return
         if path == "/api/apps":
             if APPS_PATH.exists():
                 try:
@@ -193,6 +231,11 @@ class TaskServer(BaseHTTPRequestHandler):
         self._send_text("Not found", status=404)
 
     def handle_list_tasks(self, query_string):
+        fs = firestore_client()
+        if fs:
+            items = self._firestore_list_tasks(query_string)
+            self._send_json({"items": items, "count": len(items)})
+            return
         if not DB_PATH.exists():
             self._send_json({"error": "DB not found", "db": str(DB_PATH)}, status=404)
             return
@@ -254,6 +297,11 @@ class TaskServer(BaseHTTPRequestHandler):
         self._send_json({"items": data, "count": len(data)})
 
     def handle_list_tags(self):
+        fs = firestore_client()
+        if fs:
+            tags = self._firestore_list_tags()
+            self._send_json({"items": tags})
+            return
         if not DB_PATH.exists():
             self._send_json({"error": "DB not found", "db": str(DB_PATH)}, status=404)
             return
@@ -274,6 +322,10 @@ class TaskServer(BaseHTTPRequestHandler):
         self._send_json({"items": sorted(tags)})
 
     def handle_create_task(self, payload):
+        fs = firestore_client()
+        if fs:
+            self._firestore_create_task(payload)
+            return
         if not DB_PATH.exists():
             self._send_json({"error": "DB not found", "db": str(DB_PATH)}, status=404)
             return
@@ -324,6 +376,10 @@ class TaskServer(BaseHTTPRequestHandler):
         self._send_json(fields, status=201)
 
     def handle_update_task(self, task_id, payload):
+        fs = firestore_client()
+        if fs:
+            self._firestore_update_task(task_id, payload)
+            return
         if not DB_PATH.exists():
             self._send_json({"error": "DB not found", "db": str(DB_PATH)}, status=404)
             return
@@ -521,6 +577,92 @@ class TaskServer(BaseHTTPRequestHandler):
             return
 
         self._send_json({"ok": True, "stdout": proc.stdout.strip()})
+
+    def _firestore_list_tasks(self, query_string):
+        params = parse_qs(query_string)
+        status = params.get("status", [""])[0].strip()
+        tag = params.get("tag", [""])[0].strip().lower()
+        search = params.get("q", [""])[0].strip().lower()
+        limit = int(params.get("limit", ["200"])[0])
+        offset = int(params.get("offset", ["0"])[0])
+
+        client = firestore_client()
+        if not client:
+            return []
+        docs = client.collection("tasks").stream()
+        items = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            items.append(data)
+        if status:
+            items = [item for item in items if (item.get("status") or "") == status]
+        if tag:
+            items = [item for item in items if tag in str(item.get("tags") or "").lower()]
+        if search:
+            items = [item for item in items if search in str(item.get("title") or "").lower()]
+
+        status_order = {"Not Started": 1, "In-Progress": 2, "Completed": 3}
+        items.sort(key=lambda item: (status_order.get(item.get("status"), 9), item.get("due_date") or ""))
+        if offset:
+            items = items[offset:]
+        if limit:
+            items = items[:limit]
+        return items
+
+    def _firestore_list_tags(self):
+        client = firestore_client()
+        if not client:
+            return []
+        docs = client.collection("tasks").stream()
+        tags = set()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            for t in str(data.get("tags") or "").split(","):
+                t = t.strip()
+                if t:
+                    tags.add(t)
+        return sorted(tags)
+
+    def _firestore_create_task(self, payload):
+        title = (payload.get("title") or "").strip()
+        if not title:
+            self._send_json({"error": "title required"}, status=400)
+            return
+        fields = {
+            "title": title,
+            "tags": (payload.get("tags") or "").strip(),
+            "status": (payload.get("status") or "In-Progress").strip(),
+            "due_date": (payload.get("due_date") or "").strip(),
+            "priority": (payload.get("priority") or "").strip(),
+            "next_action": (payload.get("next_action") or "").strip(),
+            "notes": (payload.get("notes") or "").strip(),
+            "source": (payload.get("source") or "All Tasks").strip(),
+            "created_at": int(time.time()),
+            "updated_at": int(time.time()),
+        }
+        client = firestore_client()
+        if not client:
+            self._send_json({"error": "firestore disabled"}, status=500)
+            return
+        doc_ref = client.collection("tasks").document()
+        doc_ref.set(fields)
+        fields["id"] = doc_ref.id
+        self._send_json(fields, status=201)
+
+    def _firestore_update_task(self, task_id, payload):
+        allowed = {"title", "tags", "status", "due_date", "priority", "next_action", "notes", "source"}
+        updates = {k: v for k, v in payload.items() if k in allowed}
+        if not updates:
+            self._send_json({"error": "no updatable fields"}, status=400)
+            return
+        updates["updated_at"] = int(time.time())
+        client = firestore_client()
+        if not client:
+            self._send_json({"error": "firestore disabled"}, status=500)
+            return
+        client.collection("tasks").document(str(task_id)).set(updates, merge=True)
+        self._send_json({"ok": True, "id": task_id})
 
 
 def main():

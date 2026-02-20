@@ -22,6 +22,7 @@
 - Ops Agent (Approvals): Approval queue + scheduled Slack prompts. Acceptance: pending approvals auto-post to Slack with buttons.
 - Ops Agent (Monitor): 15-min monitor timer + status report. Acceptance: timer active + Slack report every 15m.
 - Ops Agent (Payroll): Payroll reconcile script against exports + app.db. Acceptance: script runs and outputs week summary.
+- Ops Agent (Metrics): Firestore metrics + suite dashboard usage panel. Acceptance: `/suite` shows token + VM stats.
 
 **Blocked**
 - None

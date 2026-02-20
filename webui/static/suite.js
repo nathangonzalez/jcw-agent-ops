@@ -36,6 +36,30 @@ const loadOps = async () => {
   setText("ops-last", "live");
 };
 
+const loadMetrics = async () => {
+  const res = await fetch("/api/metrics");
+  const data = await res.json();
+  if (data.error) {
+    setText("metrics-updated", data.error);
+    return;
+  }
+  const codex24 = (data.codex_prompt_tokens_24h || 0) + (data.codex_output_tokens_24h || 0);
+  const codex1 = (data.codex_prompt_tokens_1h || 0) + (data.codex_output_tokens_1h || 0);
+  setText("metrics-codex-24h", codex24);
+  setText("metrics-codex-1h", codex1);
+  setText("metrics-claw-24h", data.openclaw_calls_24h || 0);
+  setText("metrics-replies-1h", data.slack_replies_1h || 0);
+  const vm = [
+    data.vm_load_1m ? `load=${data.vm_load_1m}` : null,
+    data.vm_mem_free_gb ? `mem_free_gb=${data.vm_mem_free_gb}` : null,
+    data.vm_disk_free_gb ? `disk_free_gb=${data.vm_disk_free_gb}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  setText("metrics-vm", vm || "n/a");
+  setText("metrics-updated", data.updated_at || "live");
+};
+
 const renderApps = (apps) => {
   const grid = document.getElementById("app-grid");
   if (!grid) return;
@@ -73,7 +97,7 @@ const loadApps = async () => {
 };
 
 const refreshAll = async () => {
-  await Promise.all([loadApps(), loadSprint(), loadBacklog(), loadOps()]);
+  await Promise.all([loadApps(), loadSprint(), loadBacklog(), loadOps(), loadMetrics()]);
 };
 
 document.getElementById("refresh").addEventListener("click", refreshAll);

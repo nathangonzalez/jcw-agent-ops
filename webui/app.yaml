@@ -4,3 +4,6 @@ entrypoint: python server.py
 env_variables:
   AGENT_OPS_HOST: "0.0.0.0"
   AGENT_OPS_PORT: "8080"
+  FIRESTORE_ENABLED: "1"
+  FIRESTORE_PROJECT_ID: "jcw-2-android-estimator"
+  OPS_METRICS_DOC: "ops_metrics/current"

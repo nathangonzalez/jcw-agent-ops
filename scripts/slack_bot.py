@@ -10,6 +10,7 @@ import subprocess
 import shutil
 import logging
 import re
+import threading
 from typing import Dict, Tuple, Optional
 import sys
 import time
@@ -74,6 +75,9 @@ EXEC_CWD = Path(_EXEC_CWD_RAW).expanduser() if _EXEC_CWD_RAW else REPO_ROOT
 RELAY_DIR = Path(os.environ.get("CLAWDBOT_RELAY_DIR", str(LOG_DIR / "relay")))
 RELAY_DIR.mkdir(parents=True, exist_ok=True)
 RELAY_URL = os.environ.get("CLAWDBOT_RELAY_URL", "http://127.0.0.1:8092").strip()
+QUEUE_PATH = Path(os.environ.get("CLAWDBOT_QUEUE_PATH", str(REPO_ROOT / "tasks" / "approval_queue.json")))
+QUEUE_CHANNEL = os.environ.get("CLAWDBOT_QUEUE_CHANNEL", "").strip()
+QUEUE_INTERVAL = int(os.environ.get("CLAWDBOT_QUEUE_INTERVAL", "3600"))
 
 LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -116,6 +120,52 @@ def log_line(message: str):
     log_path = LOG_DIR / "clawdbot_slack.log"
     log_path.write_text(log_path.read_text() + line + "\n" if log_path.exists() else line + "\n")
     print(line, flush=True)
+
+
+def _load_queue() -> list:
+    if not QUEUE_PATH.exists():
+        return []
+    try:
+        return json.loads(QUEUE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_queue(items: list) -> None:
+    QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QUEUE_PATH.write_text(json.dumps(items, indent=2))
+
+
+def _extract_queue_id(task: str) -> str:
+    match = re.search(r"\[(Q-[^\]]+)\]", task or "")
+    if match:
+        return match.group(1)
+    match = re.search(r"\bQ-\d{8}-\d{6}\b", task or "")
+    return match.group(0) if match else ""
+
+
+def _strip_queue_prefix(task: str) -> str:
+    if not task:
+        return ""
+    cleaned = re.sub(r"^\s*\[Q-[^\]]+\]\s*", "", task).strip()
+    return cleaned
+
+
+def mark_queue_status(task: str, status: str) -> None:
+    qid = _extract_queue_id(task)
+    if not qid:
+        return
+    items = _load_queue()
+    changed = False
+    for item in items:
+        if item.get("id") == qid:
+            item["status"] = status
+            if status == "approved":
+                item["approved_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            changed = True
+            break
+    if changed:
+        _save_queue(items)
 
 
 def run_openclaw(user_text: str) -> str:
@@ -327,10 +377,51 @@ def render_digest_summary() -> str:
     return f"Latest digest: {latest.name}\n\n{preview}" if preview else f"Latest digest: {latest.name}"
 
 
+def render_queue_summary() -> str:
+    items = _load_queue()
+    if not items:
+        return "Approval queue is empty."
+    lines = ["Approval queue:"]
+    for item in items:
+        lines.append(f"- {item.get('id')} | {item.get('status')} | {item.get('task')}")
+    return "\n".join(lines)
+
+
+def queue_tick():
+    if not QUEUE_INTERVAL:
+        return
+    while True:
+        try:
+            items = _load_queue()
+            changed = False
+            for item in items:
+                if item.get("status") != "pending":
+                    continue
+                if item.get("posted_at"):
+                    continue
+                channel = item.get("channel") or QUEUE_CHANNEL
+                if not channel:
+                    continue
+                task = item.get("task") or ""
+                qid = item.get("id") or ""
+                label = f"[{qid}] {task}".strip()
+                message_ts = request_approval_job(channel, "queue", label)
+                if message_ts:
+                    item["posted_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    item["status"] = "queued"
+                    changed = True
+            if changed:
+                _save_queue(items)
+        except Exception as exc:
+            log_line(f"queue_tick error: {exc}")
+        time.sleep(QUEUE_INTERVAL)
+
 def maybe_local_response(text: str) -> Optional[str]:
     t = (text or "").lower()
     if not t:
         return None
+    if t.startswith("queue"):
+        return render_queue_summary()
     if "uat" in t and "checklist" in t:
         return "\n".join(
             [
@@ -540,7 +631,7 @@ def build_approval_blocks(task: str, requester: str) -> list:
     ]
 
 
-def request_approval(channel: str, requester: str, task: str) -> str:
+def request_approval_job(channel: str, requester: str, task: str) -> Optional[str]:
     try:
         result = app.client.chat_postMessage(
             channel=channel,
@@ -557,12 +648,19 @@ def request_approval(channel: str, requester: str, task: str) -> str:
                     blocks=build_approval_blocks(task, requester),
                 )
             except SlackApiError:
-                return "I need to be added to this channel or granted `conversations:join` scope."
+                return None
         else:
-            return f"Approval error: {exc.response.get('error')}"
+            return None
     message_ts = result.get("ts")
     if message_ts:
         _PENDING_APPROVALS[message_ts] = {"task": task, "requester": requester, "channel": channel}
+    return message_ts
+
+
+def request_approval(channel: str, requester: str, task: str) -> str:
+    message_ts = request_approval_job(channel, requester, task)
+    if not message_ts:
+        return "Approval error: unable to post approval card."
     return "Approval requested. Click Approve or Reject."
 
 
@@ -906,7 +1004,18 @@ def on_claw_approve(ack, body):
     task = payload["task"]
     channel = payload["channel"]
     try:
-        response = sanitize_response(run_openclaw(f"APPROVED TASK: {task}"))
+        mark_queue_status(task, "approved")
+        raw_task = _strip_queue_prefix(task)
+        if raw_task.lower().startswith("exec:"):
+            command = raw_task.split(":", 1)[1].strip()
+            repo, cmd = extract_exec_target(f"exec {command}")
+            cwd = None
+            if repo:
+                cwd = Path(REPO_MAP.get(repo.lower(), "")).expanduser()
+            status, output = run_exec_command(cmd, cwd=cwd)
+            response = f"Exec {status}:\n{output}"
+        else:
+            response = sanitize_response(run_openclaw(f"APPROVED TASK: {raw_task}"))
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     app.client.chat_postMessage(channel=channel, text=truncate(response))
@@ -918,7 +1027,9 @@ def on_claw_reject(ack, body):
     message = body.get("message", {})
     message_ts = message.get("ts")
     if message_ts and message_ts in _PENDING_APPROVALS:
-        _PENDING_APPROVALS.pop(message_ts, None)
+        payload = _PENDING_APPROVALS.pop(message_ts, None)
+        if payload:
+            mark_queue_status(payload.get("task", ""), "rejected")
 
 
 @app.action("code_apply")
@@ -1128,6 +1239,9 @@ if __name__ == "__main__":
         f"(agent={OPENCLAW_AGENT}, allow_users={len(ALLOW_USERS)}, "
         f"allow_channels={len(ALLOW_CHANNELS)}, allow_dms={ALLOW_DMS})"
     )
+    if QUEUE_INTERVAL:
+        thread = threading.Thread(target=queue_tick, daemon=True)
+        thread.start()
     if BOT_MODE in {"http", "web", "cloudrun"}:
         try:
             from flask import Flask, request

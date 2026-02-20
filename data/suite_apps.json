@@ -1,0 +1,38 @@
+[
+  {
+    "id": "payroll",
+    "name": "Labor Timekeeper",
+    "status": "prod",
+    "description": "Time entry, approvals, payroll exports.",
+    "primary_url": "https://labor-timekeeper-dot-jcw-2-android-estimator.uc.r.appspot.com/",
+    "patch_url": "",
+    "repo": "nathangonzalez/jcw_payroll"
+  },
+  {
+    "id": "financials",
+    "name": "Financials",
+    "status": "dev",
+    "description": "Ledger, cash flow, reconciliation.",
+    "primary_url": "",
+    "patch_url": "",
+    "repo": "nathangonzalez/jcw_financials"
+  },
+  {
+    "id": "estimating",
+    "name": "Estimating",
+    "status": "dev",
+    "description": "Bid + estimate engine (next-gen rebuild).",
+    "primary_url": "",
+    "patch_url": "",
+    "repo": "nathangonzalez/jcw-estimator-pro"
+  },
+  {
+    "id": "suite",
+    "name": "Suite Ops",
+    "status": "ops",
+    "description": "Agent ops, sprint board, approvals, monitoring.",
+    "primary_url": "/suite",
+    "patch_url": "",
+    "repo": "nathangonzalez/jcw-agent-ops"
+  }
+]

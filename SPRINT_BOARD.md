@@ -18,6 +18,8 @@
 - Infra: Implement GitHub Actions matrix workflow with path filters and App Engine patch/promote per service. Acceptance: `infra/ci-cd-monorepo.yml` added.
 - Scout: Create repo inventory and populate all JCW repos (refreshed; still partial). Acceptance: table with stack, deploy, datastore, owners, risks.
 - Ops Agent (Dashboard): Ship suite ops dashboard `/suite` with sprint/backlog/ops panels. Acceptance: `/suite` loads with live data.
+- Ops Agent (Suite Shell): JCW app store UI (app cards + routing links). Acceptance: app grid renders from `/api/apps`.
+- Ops Agent (Approvals): Approval queue + scheduled Slack prompts. Acceptance: pending approvals auto-post to Slack with buttons.
 - Ops Agent (Monitor): 15-min monitor timer + status report. Acceptance: timer active + Slack report every 15m.
 - Ops Agent (Payroll): Payroll reconcile script against exports + app.db. Acceptance: script runs and outputs week summary.
 

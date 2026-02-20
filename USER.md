@@ -2,15 +2,15 @@
 
 _Learn about the person you're helping. Update this as you go._
 
-- **Name:**
-- **What to call them:**
+- **Name:** Nate (Nathan Gonzalez)
+- **What to call them:** Nate
 - **Pronouns:** _(optional)_
 - **Timezone:**
-- **Notes:**
+- **Notes:** Construction + software owner building JCW suite; prefers fast, pragmatic execution with guardrails.
 
 ## Context
 
-_(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
+Building multi-agent ops (OpenClaw + Codex) with Slack control, approvals, and persistence. Wants context-rich responses, backlog visibility, and safe automation.
 
 ---
 

@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;600;700&display=swap");
+
 :root {
   --ink: #1f1a17;
   --muted: #5d5147;
@@ -14,7 +16,7 @@
 
 body {
   margin: 0;
-  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   color: var(--ink);
   background: radial-gradient(1200px 800px at 10% -10%, #ffe9d4 0%, transparent 60%),
     radial-gradient(1000px 700px at 90% 10%, #d6f0ef 0%, transparent 55%),
@@ -281,6 +283,87 @@ body {
   gap: 18px;
 }
 
+.app-panel .panel-header {
+  margin-bottom: 16px;
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.app-card {
+  border-radius: 16px;
+  padding: 16px;
+  background: #fffdf8;
+  border: 1px solid #eadfd2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 24px var(--shadow);
+  min-height: 160px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-desc {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.app-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-meta {
+  margin-top: auto;
+  color: #8a7c6f;
+}
+
+.app-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1e6d8;
+  color: #6d5642;
+}
+
+.app-status.prod {
+  background: #d8efe3;
+  color: #1f6b4e;
+}
+
+.app-status.ops {
+  background: #d9e8f5;
+  color: #245a8d;
+}
+
+.app-status.dev {
+  background: #f7e5b2;
+  color: #7a5b12;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -290,7 +373,7 @@ body {
 }
 
 .mono {
-  font-family: "Courier New", Courier, monospace;
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
   font-size: 12px;
   white-space: pre-wrap;
   color: #5e4c3e;

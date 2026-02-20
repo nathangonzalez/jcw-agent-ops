@@ -24,6 +24,7 @@ SPRINT_PATH = REPO_ROOT / "SPRINT_BOARD.md"
 BACKLOG_PATH = REPO_ROOT / "SUPERVISOR_BACKLOG.md"
 OPS_LOG = REPO_ROOT / "agent_outputs" / "clawdbot_slack.log"
 RUNTIME_LOG = REPO_ROOT / "agent_outputs" / "clawdbot_slack_runtime.log"
+APPS_PATH = REPO_ROOT / "data" / "suite_apps.json"
 
 
 def row_to_dict(row, columns):
@@ -149,6 +150,16 @@ class TaskServer(BaseHTTPRequestHandler):
             return
         if path == "/api/ops":
             self._send_json(compute_ops_summary())
+            return
+        if path == "/api/apps":
+            if APPS_PATH.exists():
+                try:
+                    data = json.loads(APPS_PATH.read_text(encoding="utf-8"))
+                except Exception:
+                    data = []
+            else:
+                data = []
+            self._send_json({"items": data, "updated_at": APPS_PATH.stat().st_mtime if APPS_PATH.exists() else None})
             return
         self._send_text("Not found", status=404)
 

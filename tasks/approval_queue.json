@@ -1,0 +1,18 @@
+[
+  {
+    "id": "Q-20260220-01",
+    "task": "EXEC: /opt/agent-ops/scripts/run_reconcile_prod.sh",
+    "status": "pending",
+    "posted_at": null,
+    "approved_at": null,
+    "notes": "Pull latest prod backup from GCS and summarize DB + export deltas."
+  },
+  {
+    "id": "Q-20260220-02",
+    "task": "Review suite-shell app registry (webui) and approve patch deploy",
+    "status": "pending",
+    "posted_at": null,
+    "approved_at": null,
+    "notes": "Suite shell should feel like a JCW app store."
+  }
+]

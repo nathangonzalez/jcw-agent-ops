@@ -768,7 +768,7 @@ def on_message(event, say):
                             msg = row.get("text", "")
                             if msg:
                                 tail_lines.append(f"{role}: {msg}")
-                        relay_context = \"\\n\".join([line for line in ([summary] + tail_lines) if line])
+                        relay_context = "\n".join([line for line in ([summary] + tail_lines) if line])
                     response = sanitize_response(run_codex(payload, relay_context=relay_context))
             else:
                 local = maybe_local_response(payload)

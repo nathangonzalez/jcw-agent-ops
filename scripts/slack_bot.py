@@ -1029,6 +1029,7 @@ def on_claw_approve(ack, body):
     payload = _PENDING_APPROVALS.pop(message_ts)
     task = payload["task"]
     channel = payload["channel"]
+    requester = payload.get("requester", "unknown")
     try:
         mark_queue_status(task, "approved")
         raw_task = _strip_queue_prefix(task)
@@ -1042,6 +1043,29 @@ def on_claw_approve(ack, body):
             response = f"Exec {status}:\n{output}"
         else:
             response = sanitize_response(run_openclaw(f"APPROVED TASK: {raw_task}"))
+        try:
+            app.client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text=f"Approved: {task}",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"✅ *Approved*\n{task}",
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {"type": "mrkdwn", "text": f"Approved by <@{body.get('user', {}).get('id', 'unknown')}> | Requested by <@{requester}>"}
+                        ],
+                    },
+                ],
+            )
+        except Exception as exc:
+            log_line(f"approval update failed: {exc}")
     except Exception as exc:
         response = f"Clawdbot error: {exc}"
     app.client.chat_postMessage(channel=channel, text=truncate(response))
@@ -1056,6 +1080,25 @@ def on_claw_reject(ack, body):
         payload = _PENDING_APPROVALS.pop(message_ts, None)
         if payload:
             mark_queue_status(payload.get("task", ""), "rejected")
+            task = payload.get("task", "")
+            channel = payload.get("channel", "")
+            try:
+                app.client.chat_update(
+                    channel=channel,
+                    ts=message_ts,
+                    text=f"Rejected: {task}",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"❌ *Rejected*\n{task}",
+                            },
+                        }
+                    ],
+                )
+            except Exception as exc:
+                log_line(f"rejection update failed: {exc}")
 
 
 @app.action("code_apply")

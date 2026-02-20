@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /opt/agent-ops
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.slackbot.txt /opt/agent-ops/requirements.txt
+RUN pip install --no-cache-dir -r /opt/agent-ops/requirements.txt
+
+RUN mkdir -p /opt/agent-ops/scripts /opt/agent-ops/agent_outputs
+COPY scripts/slack_bot.py /opt/agent-ops/scripts/slack_bot.py
+COPY SPRINT_BOARD.md SUPERVISOR_MEMORY.md SUPERVISOR_BACKLOG.md RUNBOOK.md PERSIST.txt /opt/agent-ops/
+
+ENV CLAWDBOT_MODE=http
+ENV CLAWDBOT_REPO_ROOT=/opt/agent-ops
+ENV CLAWDBOT_LOG_DIR=/opt/agent-ops/agent_outputs
+
+EXPOSE 8080
+CMD ["python", "/opt/agent-ops/scripts/slack_bot.py"]

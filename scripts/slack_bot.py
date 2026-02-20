@@ -30,9 +30,14 @@ except Exception:  # pragma: no cover - optional dependency
 BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip()
 APP_TOKEN = os.environ.get("SLACK_APP_TOKEN", "").strip()
 SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "").strip()
+BOT_MODE = os.environ.get("CLAWDBOT_MODE", "socket").strip().lower()
 
-if not BOT_TOKEN or not APP_TOKEN:
-    raise SystemExit("Missing SLACK_BOT_TOKEN or SLACK_APP_TOKEN. See integrations/slack/README.md")
+if not BOT_TOKEN:
+    raise SystemExit("Missing SLACK_BOT_TOKEN. See integrations/slack/README.md")
+if BOT_MODE == "socket" and not APP_TOKEN:
+    raise SystemExit("Missing SLACK_APP_TOKEN (Socket Mode). See integrations/slack/README.md")
+if BOT_MODE != "socket" and not SIGNING_SECRET:
+    raise SystemExit("Missing SLACK_SIGNING_SECRET (HTTP mode). See integrations/slack/README.md")
 
 OPENCLAW_AGENT = os.environ.get("CLAWDBOT_AGENT", "orchestrator")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "").strip()
@@ -50,6 +55,7 @@ OPEN_CHAT = os.environ.get("CLAWDBOT_OPEN_CHAT", "false").strip().lower() in {"1
 CHANNEL_PREFIX = os.environ.get("CLAWDBOT_CHANNEL_PREFIX", "").strip()
 EXEC_TIMEOUT = int(os.environ.get("CLAWDBOT_EXEC_TIMEOUT", "45"))
 EXEC_ALLOW_DESTRUCTIVE = os.environ.get("CLAWDBOT_EXEC_ALLOW_DESTRUCTIVE", "false").strip().lower() in {"1", "true", "yes"}
+REPO_MAP_RAW = os.environ.get("CLAWDBOT_REPO_MAP", "").strip()
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
     (
@@ -85,6 +91,23 @@ _PENDING_CODE_BY_JOB: Dict[str, Dict[str, str]] = {}
 _CODE_STATUS: Dict[str, Dict[str, str]] = {}
 _PENDING_EXEC: Dict[str, Dict[str, str]] = {}
 _EXEC_STATUS: Dict[str, Dict[str, str]] = {}
+
+
+def _parse_repo_map(raw: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for entry in (raw or "").split(";"):
+        entry = entry.strip()
+        if not entry or "=" not in entry:
+            continue
+        name, path = entry.split("=", 1)
+        name = name.strip().lower()
+        path = path.strip()
+        if name and path:
+            out[name] = path
+    return out
+
+
+REPO_MAP = _parse_repo_map(REPO_MAP_RAW)
 
 
 def log_line(message: str):
@@ -363,6 +386,16 @@ def extract_exec_command(text: str) -> str:
     return cleaned
 
 
+def extract_exec_target(text: str) -> Tuple[Optional[str], str]:
+    cmd = extract_exec_command(text)
+    repo = None
+    match = re.match(r"^repo\s*=\s*([^;]+);?\s*(.*)$", cmd, flags=re.IGNORECASE)
+    if match:
+        repo = match.group(1).strip().lower()
+        cmd = match.group(2).strip()
+    return repo, cmd
+
+
 def is_destructive_command(cmd: str) -> bool:
     lowered = cmd.lower()
     danger = [
@@ -378,14 +411,14 @@ def is_destructive_command(cmd: str) -> bool:
     return any(token in lowered for token in danger)
 
 
-def run_exec_command(command: str) -> Tuple[str, str]:
+def run_exec_command(command: str, cwd: Optional[Path] = None) -> Tuple[str, str]:
     if not EXEC_MODE_ENABLED:
         return ("error", "Exec mode is disabled.")
     if not command:
         return ("error", "Missing command to execute.")
     if is_destructive_command(command) and not EXEC_ALLOW_DESTRUCTIVE:
         return ("error", "Command blocked: destructive commands require CLAWDBOT_EXEC_ALLOW_DESTRUCTIVE=true.")
-    cwd = EXEC_CWD if EXEC_CWD and EXEC_CWD.exists() else REPO_ROOT
+    cwd = cwd if cwd and cwd.exists() else (EXEC_CWD if EXEC_CWD and EXEC_CWD.exists() else REPO_ROOT)
     try:
         proc = subprocess.run(
             command,
@@ -578,8 +611,9 @@ def request_code_approval(channel: str, requester: str, job_id: str, summary: st
     return "Code mode proposal ready. Click Apply Patch to proceed."
 
 
-def request_exec_approval(channel: str, requester: str, command: str) -> str:
+def request_exec_approval(channel: str, requester: str, command: str, repo: Optional[str] = None) -> str:
     job_id = f"exec-{int(time.time())}"
+    repo_label = f"repo={repo}" if repo else "repo=default"
     try:
         result = app.client.chat_postMessage(
             channel=channel,
@@ -587,7 +621,7 @@ def request_exec_approval(channel: str, requester: str, command: str) -> str:
             blocks=[
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*Exec approval*\n`{command}`"},
+                    "text": {"type": "mrkdwn", "text": f"*Exec approval*\n`{command}`\n{repo_label}"},
                 },
                 {
                     "type": "context",
@@ -623,6 +657,7 @@ def request_exec_approval(channel: str, requester: str, command: str) -> str:
         return f"Exec approval error: {exc.response.get('error')}"
     _PENDING_EXEC[job_id] = {
         "command": command,
+        "repo": repo or "",
         "channel": channel,
         "requester": requester,
         "message_ts": result.get("ts"),
@@ -671,8 +706,8 @@ def on_app_mention(event, say):
             route, payload = parse_route(text)
             if route == "codex":
                 if is_exec_request(payload):
-                    command = extract_exec_command(payload)
-                    response = request_exec_approval(channel, user, command)
+                    repo, command = extract_exec_target(payload)
+                    response = request_exec_approval(channel, user, command, repo=repo)
                 elif is_code_request(payload):
                     status, result = run_code_mode(payload)
                     if status == "ok":
@@ -747,8 +782,8 @@ def on_message(event, say):
             route, payload = parse_route(text)
             if route == "codex":
                 if is_exec_request(payload):
-                    command = extract_exec_command(payload)
-                    response = request_exec_approval(channel, user, command)
+                    repo, command = extract_exec_target(payload)
+                    response = request_exec_approval(channel, user, command, repo=repo)
                 elif is_code_request(payload):
                     status, result = run_code_mode(payload)
                     if status == "ok":
@@ -823,7 +858,10 @@ def on_slash_claw(ack, body, respond):
         else:
             route, payload = parse_route(text)
             if route == "codex":
-                if is_code_request(payload):
+                if is_exec_request(payload):
+                    repo, command = extract_exec_target(payload)
+                    response = request_exec_approval(channel, user, command, repo=repo)
+                elif is_code_request(payload):
                     status, result = run_code_mode(payload)
                     if status == "ok":
                         summary = f"Generated patch for request: {payload}"
@@ -1028,9 +1066,20 @@ def on_exec_apply(ack, body):
     except Exception:
         pass
     command = payload.get("command", "")
+    repo = (payload.get("repo") or "").strip().lower()
+    cwd = None
+    if repo:
+        repo_path = REPO_MAP.get(repo)
+        if not repo_path:
+            app.client.chat_postMessage(channel=channel, text=f"Unknown repo '{repo}'. Update CLAWDBOT_REPO_MAP.")
+            _EXEC_STATUS[job_id] = {"status": "failed", "updated": datetime.utcnow().isoformat()}
+            _PENDING_EXEC.pop(job_id, None)
+            log_line(f"exec_apply failed (unknown repo={repo})")
+            return
+        cwd = Path(repo_path)
     log_line(f"exec_apply action by {user_id or 'unknown'} job={job_id} cmd={command}")
     try:
-        result_status, output = run_exec_command(command)
+        result_status, output = run_exec_command(command, cwd=cwd)
         _EXEC_STATUS[job_id] = {"status": "done", "updated": datetime.utcnow().isoformat()}
         _PENDING_EXEC.pop(job_id, None)
         body_text = "\n".join(
@@ -1079,5 +1128,25 @@ if __name__ == "__main__":
         f"(agent={OPENCLAW_AGENT}, allow_users={len(ALLOW_USERS)}, "
         f"allow_channels={len(ALLOW_CHANNELS)}, allow_dms={ALLOW_DMS})"
     )
-    handler = SocketModeHandler(app, APP_TOKEN)
-    handler.start()
+    if BOT_MODE in {"http", "web", "cloudrun"}:
+        try:
+            from flask import Flask, request
+            from slack_bolt.adapter.flask import SlackRequestHandler
+        except Exception as exc:
+            raise SystemExit(f"Missing Flask adapter dependencies: {exc}")
+        flask_app = Flask(__name__)
+        handler = SlackRequestHandler(app)
+
+        @flask_app.route("/slack/events", methods=["POST"])
+        def slack_events():
+            return handler.handle(request)
+
+        @flask_app.route("/health", methods=["GET"])
+        def health():
+            return ("ok", 200)
+
+        port = int(os.environ.get("PORT", "8080"))
+        flask_app.run(host="0.0.0.0", port=port)
+    else:
+        handler = SocketModeHandler(app, APP_TOKEN)
+        handler.start()

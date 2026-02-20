@@ -1,0 +1,4 @@
+slack-bolt==1.22.0
+slack-sdk==3.31.0
+flask==3.0.3
+openai==1.61.1

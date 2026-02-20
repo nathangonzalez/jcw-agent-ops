@@ -67,6 +67,31 @@ $env:SLACK_APP_TOKEN="xapp-..."
 $env:SLACK_SIGNING_SECRET="..."
 scripts\run_slack_bot.ps1
 ```
+Repo targeting (exec):
+- Set `CLAWDBOT_REPO_MAP="agent-ops=C:\Users\natha\dev\repos\agent-ops;jcw_payroll=C:\Users\natha\dev\repos\jcw_payroll"`
+- Use `codex: exec repo=jcw_payroll; git status`
+
+**Slack Bridge (Cloud Run / Events API)**:
+```powershell
+# Build + deploy
+gcloud builds submit --tag gcr.io/$PROJECT_ID/jcw-clawbot -f Dockerfile.slackbot .
+gcloud run deploy jcw-clawbot `
+  --image gcr.io/$PROJECT_ID/jcw-clawbot `
+  --region us-central1 `
+  --allow-unauthenticated `
+  --set-env-vars `
+SLACK_BOT_TOKEN=...,
+SLACK_SIGNING_SECRET=...,
+OPENAI_API_KEY=...,
+CLAWDBOT_REPO_MAP=agent-ops=/opt/agent-ops,
+CLAWDBOT_MODE=http,
+CLAWDBOT_CODE_MODE=false,
+CLAWDBOT_EXEC_MODE=false
+```
+Slack app settings:
+- Request URL: `https://<cloud-run-url>/slack/events`
+- Interactivity URL: `https://<cloud-run-url>/slack/events`
+- Slash commands: point to the same `/slack/events` URL
 
 **Sync Tasks back to Excel (All Tasks)**:
 ```powershell

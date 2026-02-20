@@ -4,6 +4,7 @@ Slack Socket Mode bot bridge for Clawdbot.
 Responds to app mentions and direct messages using OpenClaw.
 """
 
+import json
 import os
 import subprocess
 import shutil
@@ -38,6 +39,7 @@ OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "").strip()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 CODEX_MODEL = os.environ.get("CODEX_MODEL", "gpt-4o-mini").strip()
 CODE_MODE_ENABLED = os.environ.get("CLAWDBOT_CODE_MODE", "true").strip().lower() in {"1", "true", "yes"}
+EXEC_MODE_ENABLED = os.environ.get("CLAWDBOT_EXEC_MODE", "true").strip().lower() in {"1", "true", "yes"}
 ALLOW_USERS = {u.strip() for u in os.environ.get("CLAWDBOT_ALLOW_USERS", "").split(",") if u.strip()}
 ALLOW_CHANNELS = {c.strip() for c in os.environ.get("CLAWDBOT_ALLOW_CHANNELS", "").split(",") if c.strip()}
 ALLOW_DMS = os.environ.get("CLAWDBOT_ALLOW_DMS", "true").strip().lower() in {"1", "true", "yes"}
@@ -46,6 +48,8 @@ CODEX_DEFAULT = os.environ.get("CLAWDBOT_CODEX_DEFAULT", "false").strip().lower(
 DISABLE_OPENCLAW = os.environ.get("CLAWDBOT_DISABLE_OPENCLAW", "false").strip().lower() in {"1", "true", "yes"}
 OPEN_CHAT = os.environ.get("CLAWDBOT_OPEN_CHAT", "false").strip().lower() in {"1", "true", "yes"}
 CHANNEL_PREFIX = os.environ.get("CLAWDBOT_CHANNEL_PREFIX", "").strip()
+EXEC_TIMEOUT = int(os.environ.get("CLAWDBOT_EXEC_TIMEOUT", "45"))
+EXEC_ALLOW_DESTRUCTIVE = os.environ.get("CLAWDBOT_EXEC_ALLOW_DESTRUCTIVE", "false").strip().lower() in {"1", "true", "yes"}
 SAFE_PREFIX = os.environ.get(
     "CLAWDBOT_SAFE_PREFIX",
     (
@@ -59,6 +63,8 @@ LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", r"C:\Users\natha\dev\repos\age
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / "clawdbot_slack_runtime.log"
 REPO_ROOT = Path(os.environ.get("CLAWDBOT_REPO_ROOT", r"C:\Users\natha\dev\repos\agent-ops"))
+_EXEC_CWD_RAW = os.environ.get("CLAWDBOT_EXEC_CWD", "").strip()
+EXEC_CWD = Path(_EXEC_CWD_RAW).expanduser() if _EXEC_CWD_RAW else REPO_ROOT
 RELAY_DIR = Path(os.environ.get("CLAWDBOT_RELAY_DIR", str(LOG_DIR / "relay")))
 RELAY_DIR.mkdir(parents=True, exist_ok=True)
 RELAY_URL = os.environ.get("CLAWDBOT_RELAY_URL", "http://127.0.0.1:8092").strip()
@@ -77,6 +83,8 @@ _PENDING_APPROVALS: Dict[str, Dict[str, str]] = {}
 _PENDING_CODE: Dict[str, Dict[str, str]] = {}
 _PENDING_CODE_BY_JOB: Dict[str, Dict[str, str]] = {}
 _CODE_STATUS: Dict[str, Dict[str, str]] = {}
+_PENDING_EXEC: Dict[str, Dict[str, str]] = {}
+_EXEC_STATUS: Dict[str, Dict[str, str]] = {}
 
 
 def log_line(message: str):
@@ -340,6 +348,61 @@ def is_code_request(text: str) -> bool:
     return lower.startswith("code ") or lower.startswith("code:") or lower.startswith("implement ") or lower.startswith("implement:")
 
 
+def is_exec_request(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower().strip()
+    return lower.startswith(("exec ", "exec:", "shell ", "shell:", "cmd ", "cmd:"))
+
+
+def extract_exec_command(text: str) -> str:
+    cleaned = text.strip()
+    parts = re.split(r"^(exec|shell|cmd)\s*[: ]\s*", cleaned, flags=re.IGNORECASE)
+    if len(parts) >= 3:
+        return parts[2].strip()
+    return cleaned
+
+
+def is_destructive_command(cmd: str) -> bool:
+    lowered = cmd.lower()
+    danger = [
+        "rm -rf",
+        "rm -r",
+        "shutdown",
+        "reboot",
+        "mkfs",
+        "dd if=",
+        "format ",
+        "del /f",
+    ]
+    return any(token in lowered for token in danger)
+
+
+def run_exec_command(command: str) -> Tuple[str, str]:
+    if not EXEC_MODE_ENABLED:
+        return ("error", "Exec mode is disabled.")
+    if not command:
+        return ("error", "Missing command to execute.")
+    if is_destructive_command(command) and not EXEC_ALLOW_DESTRUCTIVE:
+        return ("error", "Command blocked: destructive commands require CLAWDBOT_EXEC_ALLOW_DESTRUCTIVE=true.")
+    cwd = EXEC_CWD if EXEC_CWD and EXEC_CWD.exists() else REPO_ROOT
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=EXEC_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return ("error", f"Command timed out after {EXEC_TIMEOUT}s.")
+    output = "\n".join([proc.stdout or "", proc.stderr or ""]).strip()
+    output = output if output else "(no output)"
+    status = "ok" if proc.returncode == 0 else "error"
+    return (status, output)
+
+
 def run_code_mode(request_text: str) -> Tuple[str, str]:
     """
     Run code mode generator. Returns (status, payload)
@@ -515,6 +578,59 @@ def request_code_approval(channel: str, requester: str, job_id: str, summary: st
     return "Code mode proposal ready. Click Apply Patch to proceed."
 
 
+def request_exec_approval(channel: str, requester: str, command: str) -> str:
+    job_id = f"exec-{int(time.time())}"
+    try:
+        result = app.client.chat_postMessage(
+            channel=channel,
+            text=f"Exec approval requested: {command}",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*Exec approval*\n`{command}`"},
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"Requested by <@{requester}> | Job {job_id}",
+                        }
+                    ],
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Run Command"},
+                            "style": "primary",
+                            "action_id": "exec_apply",
+                            "value": job_id,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Reject"},
+                            "style": "danger",
+                            "action_id": "exec_reject",
+                            "value": job_id,
+                        },
+                    ],
+                },
+            ],
+        )
+    except SlackApiError as exc:
+        return f"Exec approval error: {exc.response.get('error')}"
+    _PENDING_EXEC[job_id] = {
+        "command": command,
+        "channel": channel,
+        "requester": requester,
+        "message_ts": result.get("ts"),
+    }
+    _EXEC_STATUS[job_id] = {"status": "pending", "updated": datetime.utcnow().isoformat()}
+    return "Exec request queued. Click Run Command to proceed."
+
+
 def is_allowed(user_id: str, channel_id: str, channel_type: str) -> bool:
     if ALLOW_USERS and user_id not in ALLOW_USERS:
         return False
@@ -554,7 +670,10 @@ def on_app_mention(event, say):
         else:
             route, payload = parse_route(text)
             if route == "codex":
-                if is_code_request(payload):
+                if is_exec_request(payload):
+                    command = extract_exec_command(payload)
+                    response = request_exec_approval(channel, user, command)
+                elif is_code_request(payload):
                     status, result = run_code_mode(payload)
                     if status == "ok":
                         summary = f"Generated patch for request: {payload}"
@@ -627,7 +746,10 @@ def on_message(event, say):
         else:
             route, payload = parse_route(text)
             if route == "codex":
-                if is_code_request(payload):
+                if is_exec_request(payload):
+                    command = extract_exec_command(payload)
+                    response = request_exec_approval(channel, user, command)
+                elif is_code_request(payload):
                     status, result = run_code_mode(payload)
                     if status == "ok":
                         summary = f"Generated patch for request: {payload}"
@@ -862,6 +984,93 @@ def on_code_reject(ack, body):
     if job_id:
         _CODE_STATUS[job_id] = {"status": "rejected", "updated": datetime.utcnow().isoformat()}
         _PENDING_CODE_BY_JOB.pop(job_id, None)
+
+
+@app.action("exec_apply")
+def on_exec_apply(ack, body):
+    ack()
+    actions = body.get("actions") or []
+    job_id = actions[0].get("value") if actions else None
+    user_id = body.get("user", {}).get("id")
+    if not job_id or job_id not in _PENDING_EXEC:
+        if user_id:
+            app.client.chat_postEphemeral(
+                channel=body.get("channel", {}).get("id"),
+                user=user_id,
+                text="That exec request is no longer pending.",
+            )
+        log_line("exec_apply ignored (no pending job)")
+        return
+    payload = _PENDING_EXEC[job_id]
+    channel = payload["channel"]
+    status = _EXEC_STATUS.get(job_id, {}).get("status")
+    if status in {"running", "done"}:
+        if user_id:
+            app.client.chat_postEphemeral(
+                channel=channel,
+                user=user_id,
+                text=f"Exec already {status}.",
+            )
+        log_line(f"exec_apply ignored (status={status})")
+        return
+    _EXEC_STATUS[job_id] = {"status": "running", "updated": datetime.utcnow().isoformat()}
+    message_ts = payload.get("message_ts")
+    try:
+        if message_ts:
+            app.client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text="Running command...",
+                blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Running command*\nJob {job_id}"}},
+                ],
+            )
+    except Exception:
+        pass
+    command = payload.get("command", "")
+    log_line(f"exec_apply action by {user_id or 'unknown'} job={job_id} cmd={command}")
+    try:
+        result_status, output = run_exec_command(command)
+        _EXEC_STATUS[job_id] = {"status": "done", "updated": datetime.utcnow().isoformat()}
+        _PENDING_EXEC.pop(job_id, None)
+        body_text = "\n".join(
+            [
+                f"*Exec result* ({result_status})",
+                f"`{command}`",
+                "```",
+                truncate(output, 2800),
+                "```",
+            ]
+        )
+        app.client.chat_postMessage(channel=channel, text=body_text)
+        log_line(f"exec_apply ok (job={job_id})")
+        if message_ts:
+            try:
+                app.client.chat_update(
+                    channel=channel,
+                    ts=message_ts,
+                    text="Command completed.",
+                    blocks=[
+                        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Command completed*\nJob {job_id}"}},
+                    ],
+                )
+            except Exception:
+                pass
+    except Exception as exc:
+        _EXEC_STATUS[job_id] = {"status": "failed", "updated": datetime.utcnow().isoformat()}
+        _PENDING_EXEC.pop(job_id, None)
+        app.client.chat_postMessage(channel=channel, text=f"Exec error: {exc}")
+        log_line(f"exec_apply exception (job={job_id}): {exc}")
+
+
+@app.action("exec_reject")
+def on_exec_reject(ack, body):
+    ack()
+    actions = body.get("actions") or []
+    job_id = actions[0].get("value") if actions else None
+    if job_id:
+        _EXEC_STATUS[job_id] = {"status": "rejected", "updated": datetime.utcnow().isoformat()}
+        _PENDING_EXEC.pop(job_id, None)
 
 
 if __name__ == "__main__":

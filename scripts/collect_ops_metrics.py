@@ -22,6 +22,25 @@ try:
 except Exception:
     bigquery = None
 
+ENV_FILE = Path(os.environ.get("CLAWDBOT_ENV_FILE", "/etc/clawbot.env"))
+
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(ENV_FILE)
+
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", "/opt/agent-ops/agent_outputs"))
 USAGE_LOG = LOG_DIR / "codex_usage.log"
 SLACK_LOG = LOG_DIR / "clawdbot_slack.log"

@@ -47,6 +47,11 @@ def parse_args():
     parser.add_argument("--db", required=True, help="Path to payroll SQLite db (app.db)")
     parser.add_argument("--month", default="", help="Month filter (YYYY-MM). Defaults to file mtime month.")
     parser.add_argument("--out-dir", required=True, help="Output directory for CSV reports")
+    parser.add_argument(
+        "--manual-xlsx",
+        default="",
+        help="Optional comma-separated XLSX files with columns Date, Job, Task, Start, Lunch, End, Total.",
+    )
     return parser.parse_args()
 
 
@@ -196,6 +201,45 @@ def collect_manual_entries(exports_root: Path, week_dirs: Iterable[Path], month_
     return entries
 
 
+def parse_manual_xlsx(path: Path) -> List[Tuple[str, str, str, float]]:
+    wb = load_workbook(path, data_only=True)
+    entries: List[Tuple[str, str, str, float]] = []
+    for ws in wb.worksheets:
+        employee = ws.title.replace("_", " ").strip()
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+        header = [str(c).strip().lower() if c is not None else "" for c in rows[0]]
+        try:
+            date_idx = header.index("date")
+            job_idx = header.index("job")
+            total_idx = header.index("total")
+        except ValueError:
+            continue
+        for row in rows[1:]:
+            if not row or len(row) <= max(date_idx, job_idx, total_idx):
+                continue
+            date_val = row[date_idx]
+            job_val = row[job_idx]
+            total_val = row[total_idx]
+            if not date_val or not total_val:
+                continue
+            date_str = str(date_val).strip()
+            if len(date_str) == 10 and date_str[4] == "-" and date_str[7] == "-":
+                date = date_str
+            else:
+                try:
+                    date = datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%d")
+                except Exception:
+                    continue
+            customer = str(job_val or "").strip() or "Unknown"
+            hours = round_hours(total_val)
+            if hours <= 0:
+                continue
+            entries.append((date, employee, customer, hours))
+    return entries
+
+
 def load_db_entries(db_path: Path, month: str) -> List[Tuple[str, str, str, float]]:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -261,6 +305,12 @@ def main():
 
     month_hint = args.month or ""
     manual_entries = collect_manual_entries(exports_root, week_dirs, month_hint or None)
+    manual_from_voice = []
+    if args.manual_xlsx:
+        for path in [p.strip() for p in args.manual_xlsx.split(",") if p.strip()]:
+            manual_from_voice.extend(parse_manual_xlsx(Path(path)))
+    if manual_from_voice:
+        manual_entries.extend(manual_from_voice)
     if not manual_entries:
         raise SystemExit("No manual entries parsed from weekly exports.")
 
@@ -285,6 +335,7 @@ def main():
     summary = [
         f"Month: {month_hint}",
         f"Manual entries: {sum(manual_counter.values())}",
+        f"Manual entries (voice): {len(manual_from_voice)}",
         f"DB entries: {sum(db_counter.values())}",
         f"Matches: {sum(common.values())}",
         f"Manual-only: {sum(manual_only.values())}",

@@ -1,11 +1,11 @@
 # Sprint Board
 
-**Lane Summaries (2026-02-18)**
-- Infra Lane: Monorepo CI/CD plan with path filters, matrix builds, patch deploy, and manual promote for App Engine services.
-- Product Lane: Suite-shell UX with top bar + side app dock, app routing, and lazy module loading.
-- Finance Lane: Ledger taxonomy v1, manual review triggers, and cash flow phase mapping by construction phase.
-- Scout Lane: Repo inventory template; only payroll partially filled; needs crawl of all JCW repos.
-- Research Lane: 5 agentic modeling spikes; sources require verification before adoption.
+**Lane Summaries (2026-02-20)**
+- Infra Lane: Updated monorepo CI/CD plan with path filters, matrix builds, patch deploy, and manual promote for App Engine services (minimal YAML outline ready).
+- Product Lane: Suite-shell UX draft with top bar + left rail app dock, routing, and lazy module loading.
+- Finance Lane: Ledger taxonomy v1, manual review triggers, and cash flow phase mapping by construction phase (expanded detail).
+- Scout Lane: Repo inventory refreshed; still only partially populated and needs crawl of all JCW repos.
+- Research Lane: 5 agentic modeling spikes drafted; sources require verification before adoption.
 
 ---
 
@@ -16,7 +16,7 @@
 
 **In Progress**
 - Infra: Implement GitHub Actions matrix workflow with path filters and App Engine patch/promote per service. Acceptance: `infra/ci-cd-monorepo.yml` added.
-- Scout: Create repo inventory and populate all JCW repos. Acceptance: table with stack, deploy, datastore, owners, risks.
+- Scout: Create repo inventory and populate all JCW repos (refreshed; still partial). Acceptance: table with stack, deploy, datastore, owners, risks.
 - Ops Agent (Dashboard): Ship suite ops dashboard `/suite` with sprint/backlog/ops panels. Acceptance: `/suite` loads with live data.
 - Ops Agent (Monitor): 15-min monitor timer + status report. Acceptance: timer active + Slack report every 15m.
 - Ops Agent (Payroll): Payroll reconcile script against exports + app.db. Acceptance: script runs and outputs week summary.
@@ -31,3 +31,4 @@
 - Infra: Monorepo plan drafted (`infra/monorepo_plan.md`).
 - Product: Suite-shell UX spec drafted (`product/suite_shell_spec.md`).
 - Scout: Initial repo inventory drafted (`inventory/repo_inventory.md`).
+- Scout: Repo inventory refreshed (`inventory/repo_inventory.md`).

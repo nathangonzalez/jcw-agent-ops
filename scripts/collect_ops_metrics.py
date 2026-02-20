@@ -11,15 +11,27 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Tuple
 
 try:
     from google.cloud import firestore  # type: ignore
 except Exception:
     firestore = None
+try:
+    from google.cloud import bigquery  # type: ignore
+except Exception:
+    bigquery = None
 
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", "/opt/agent-ops/agent_outputs"))
 USAGE_LOG = LOG_DIR / "codex_usage.log"
 SLACK_LOG = LOG_DIR / "clawdbot_slack.log"
+ANTHROPIC_LOG = LOG_DIR / "anthropic_usage.log"
+REPO_ROOT = Path(os.environ.get("OPS_REPO_ROOT", "/opt/agent-ops"))
+SUPERVISOR_BACKLOG = REPO_ROOT / "SUPERVISOR_BACKLOG.md"
+SUPERVISOR_MEMORY = REPO_ROOT / "SUPERVISOR_MEMORY.md"
+BILLING_EXPORT_TABLE = os.environ.get("BILLING_EXPORT_TABLE", "").strip()
+BILLING_PROJECT_ID = os.environ.get("BILLING_PROJECT_ID", "").strip()
+BILLING_WINDOW_HOURS = int(os.environ.get("BILLING_WINDOW_HOURS", "24"))
 
 
 def parse_usage_line(line: str):
@@ -57,11 +69,11 @@ def read_recent_lines(path: Path, limit: int = 2000):
     return path.read_text(encoding="utf-8", errors="ignore").splitlines()[-limit:]
 
 
-def sum_usage(window_seconds: int):
+def sum_usage(window_seconds: int, log_path: Path):
     now = datetime.now(timezone.utc)
     prompt = 0
     output = 0
-    lines = read_recent_lines(USAGE_LOG, 5000)
+    lines = read_recent_lines(log_path, 5000)
     for line in lines:
         parsed = parse_usage_line(line)
         if not parsed:
@@ -71,6 +83,20 @@ def sum_usage(window_seconds: int):
             prompt += parsed["prompt"]
             output += parsed["output"]
     return prompt, output
+
+
+def count_usage(window_seconds: int, log_path: Path) -> int:
+    now = datetime.now(timezone.utc)
+    count = 0
+    lines = read_recent_lines(log_path, 5000)
+    for line in lines:
+        parsed = parse_usage_line(line)
+        if not parsed:
+            continue
+        age = (now - parsed["ts"]).total_seconds()
+        if age <= window_seconds:
+            count += 1
+    return count
 
 
 def read_meminfo():
@@ -88,9 +114,61 @@ def read_meminfo():
     return {"mem_total_gb": round(total / 1024 / 1024, 2), "mem_free_gb": round(free / 1024 / 1024, 2)}
 
 
+def summarize_backlog(path: Path) -> dict:
+    if not path.exists():
+        return {"summary": "missing", "counts": {}, "updated_at": None}
+    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    current = None
+    counts = {}
+    samples = {}
+    for line in lines:
+        if line.startswith("## "):
+            current = line[3:].strip()
+            counts.setdefault(current, 0)
+            samples.setdefault(current, [])
+            continue
+        if current and line.strip().startswith("- "):
+            counts[current] = counts.get(current, 0) + 1
+            if len(samples[current]) < 3:
+                samples[current].append(line.strip()[2:].strip())
+    summary = " | ".join([f"{k}: {v}" for k, v in counts.items()]) if counts else "empty"
+    updated_at = datetime.utcfromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"summary": summary, "counts": counts, "samples": samples, "updated_at": updated_at}
+
+
+def file_updated_at(path: Path) -> Optional[str]:
+    if not path.exists():
+        return None
+    return datetime.utcfromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def get_billing_cost(hours: int = 24) -> Tuple[Optional[float], Optional[str]]:
+    if not BILLING_EXPORT_TABLE:
+        return None, "billing export not configured"
+    if bigquery is None:
+        return None, "google-cloud-bigquery not installed"
+    try:
+        project = BILLING_PROJECT_ID or None
+        client = bigquery.Client(project=project)
+        query = f"""
+            SELECT
+              SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) AS c), 0)) AS net_cost
+            FROM `{BILLING_EXPORT_TABLE}`
+            WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {hours} HOUR)
+        """
+        rows = list(client.query(query).result())
+        cost = float(rows[0].net_cost or 0) if rows else 0.0
+        return round(cost, 2), None
+    except Exception as exc:
+        return None, f"billing query failed: {exc}"
+
+
 def collect_metrics():
-    prompt_1h, output_1h = sum_usage(3600)
-    prompt_24h, output_24h = sum_usage(86400)
+    prompt_1h, output_1h = sum_usage(3600, USAGE_LOG)
+    prompt_24h, output_24h = sum_usage(86400, USAGE_LOG)
+    anth_prompt_1h, anth_output_1h = sum_usage(3600, ANTHROPIC_LOG)
+    anth_prompt_24h, anth_output_24h = sum_usage(86400, ANTHROPIC_LOG)
+    anth_calls_24h = count_usage(86400, ANTHROPIC_LOG)
 
     slack_lines_1h = read_recent_lines(SLACK_LOG, 2000)
     slack_stats = parse_slack_lines(slack_lines_1h)
@@ -98,6 +176,9 @@ def collect_metrics():
     load_1m = os.getloadavg()[0] if hasattr(os, "getloadavg") else 0
     disk = shutil.disk_usage("/")
     mem = read_meminfo() or {}
+    backlog = summarize_backlog(SUPERVISOR_BACKLOG)
+    memory_updated = file_updated_at(SUPERVISOR_MEMORY)
+    billing_cost, billing_status = get_billing_cost(BILLING_WINDOW_HOURS)
 
     return {
         "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -105,12 +186,24 @@ def collect_metrics():
         "codex_output_tokens_1h": output_1h,
         "codex_prompt_tokens_24h": prompt_24h,
         "codex_output_tokens_24h": output_24h,
+        "anthropic_prompt_tokens_1h": anth_prompt_1h,
+        "anthropic_output_tokens_1h": anth_output_1h,
+        "anthropic_prompt_tokens_24h": anth_prompt_24h,
+        "anthropic_output_tokens_24h": anth_output_24h,
+        "anthropic_calls_24h": anth_calls_24h,
         "openclaw_calls_24h": slack_stats["openclaw_calls"],
         "slack_replies_1h": slack_stats["replies"],
         "slack_errors_1h": slack_stats["errors"],
         "vm_load_1m": round(load_1m, 2),
         "vm_disk_free_gb": round(disk.free / 1024 / 1024 / 1024, 2),
         "vm_mem_free_gb": mem.get("mem_free_gb"),
+        "supervisor_backlog_summary": backlog["summary"],
+        "supervisor_backlog_counts": backlog["counts"],
+        "supervisor_backlog_samples": backlog["samples"],
+        "supervisor_backlog_updated_at": backlog["updated_at"],
+        "supervisor_memory_updated_at": memory_updated,
+        "gcp_cost_24h_usd": billing_cost,
+        "gcp_cost_status": billing_status,
     }
 
 

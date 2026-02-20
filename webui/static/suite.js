@@ -45,10 +45,20 @@ const loadMetrics = async () => {
   }
   const codex24 = (data.codex_prompt_tokens_24h || 0) + (data.codex_output_tokens_24h || 0);
   const codex1 = (data.codex_prompt_tokens_1h || 0) + (data.codex_output_tokens_1h || 0);
+  const anth24 = (data.anthropic_prompt_tokens_24h || 0) + (data.anthropic_output_tokens_24h || 0);
+  const anth1 = (data.anthropic_prompt_tokens_1h || 0) + (data.anthropic_output_tokens_1h || 0);
   setText("metrics-codex-24h", codex24);
   setText("metrics-codex-1h", codex1);
+  setText("metrics-anth-24h", anth24);
+  setText("metrics-anth-1h", anth1);
   setText("metrics-claw-24h", data.openclaw_calls_24h || 0);
   setText("metrics-replies-1h", data.slack_replies_1h || 0);
+  setText("metrics-agents", data.supervisor_backlog_summary || "n/a");
+  if (data.gcp_cost_24h_usd !== null && data.gcp_cost_24h_usd !== undefined) {
+    setText("metrics-gcp-24h", `$${data.gcp_cost_24h_usd}`);
+  } else {
+    setText("metrics-gcp-24h", data.gcp_cost_status || "n/a");
+  }
   const vm = [
     data.vm_load_1m ? `load=${data.vm_load_1m}` : null,
     data.vm_mem_free_gb ? `mem_free_gb=${data.vm_mem_free_gb}` : null,

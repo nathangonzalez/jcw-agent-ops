@@ -69,6 +69,7 @@ SAFE_PREFIX = os.environ.get(
 LOG_DIR = Path(os.environ.get("CLAWDBOT_LOG_DIR", r"C:\Users\natha\dev\repos\agent-ops\agent_outputs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / "clawdbot_slack_runtime.log"
+ANTHROPIC_USAGE_LOG = LOG_DIR / "anthropic_usage.log"
 REPO_ROOT = Path(os.environ.get("CLAWDBOT_REPO_ROOT", r"C:\Users\natha\dev\repos\agent-ops"))
 _EXEC_CWD_RAW = os.environ.get("CLAWDBOT_EXEC_CWD", "").strip()
 EXEC_CWD = Path(_EXEC_CWD_RAW).expanduser() if _EXEC_CWD_RAW else REPO_ROOT
@@ -78,6 +79,7 @@ RELAY_URL = os.environ.get("CLAWDBOT_RELAY_URL", "http://127.0.0.1:8092").strip(
 QUEUE_PATH = Path(os.environ.get("CLAWDBOT_QUEUE_PATH", str(REPO_ROOT / "tasks" / "approval_queue.json")))
 QUEUE_CHANNEL = os.environ.get("CLAWDBOT_QUEUE_CHANNEL", "").strip()
 QUEUE_INTERVAL = int(os.environ.get("CLAWDBOT_QUEUE_INTERVAL", "3600"))
+ANTHROPIC_USAGE_ENABLED = os.environ.get("CLAWDBOT_ANTHROPIC_USAGE", "true").strip().lower() in {"1", "true", "yes"}
 
 LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -120,6 +122,28 @@ def log_line(message: str):
     log_path = LOG_DIR / "clawdbot_slack.log"
     log_path.write_text(log_path.read_text() + line + "\n" if log_path.exists() else line + "\n")
     print(line, flush=True)
+
+
+def estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, int(len(text) / 4))
+
+
+def log_anthropic_usage(prompt: str, output: str) -> None:
+    if not ANTHROPIC_USAGE_ENABLED:
+        return
+    prompt_tokens = estimate_tokens(prompt)
+    output_tokens = estimate_tokens(output)
+    total_tokens = prompt_tokens + output_tokens
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    line = (
+        f"[{ts}] model=openclaw/{OPENCLAW_AGENT} "
+        f"prompt={prompt_tokens} output={output_tokens} total={total_tokens} estimated=1\n"
+    )
+    ANTHROPIC_USAGE_LOG.write_text(
+        ANTHROPIC_USAGE_LOG.read_text() + line if ANTHROPIC_USAGE_LOG.exists() else line
+    )
 
 
 def _load_queue() -> list:
@@ -203,7 +227,9 @@ def run_openclaw(user_text: str) -> str:
         log_line(f"openclaw error ({proc.returncode}) in {elapsed:.1f}s")
         return f"Clawdbot error: {proc.stderr.strip() or 'unknown error'}"
     log_line(f"openclaw ok in {elapsed:.1f}s")
-    return proc.stdout.strip()
+    output = proc.stdout.strip()
+    log_anthropic_usage(prompt, output)
+    return output
 
 
 def run_codex(user_text: str, relay_context: str = "") -> str:

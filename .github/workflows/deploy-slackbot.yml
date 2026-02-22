@@ -1,14 +1,15 @@
 name: Deploy Slack Bot
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/slack_bot.py'
-      - 'requirements.slackbot.txt'
-      - 'Dockerfile.slackbot'
-      - 'cloudbuild.slackbot.yaml'
-      - '.github/workflows/deploy-slackbot.yml'
+  # push trigger disabled until GCP secrets are configured
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'scripts/slack_bot.py'
+  #     - 'requirements.slackbot.txt'
+  #     - 'Dockerfile.slackbot'
+  #     - 'cloudbuild.slackbot.yaml'
+  #     - '.github/workflows/deploy-slackbot.yml'
   workflow_dispatch:
     inputs:
       environment:

@@ -1,0 +1,267 @@
+name: Research Digest Pipeline
+
+on:
+  schedule:
+    # Daily digest at 6:00 AM EST (11:00 UTC)
+    - cron: '0 11 * * *'
+    # Weekly digest on Mondays at 7:00 AM EST (12:00 UTC)
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Digest mode (daily or weekly)'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - weekly
+      topic:
+        description: 'Research topic override'
+        required: false
+        default: ''
+        type: string
+      extra_topics:
+        description: 'Comma-separated additional topics for parallel generation'
+        required: false
+        default: ''
+        type: string
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0AFSUEJ2KY' }}
+
+jobs:
+  determine-mode:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.set-mode.outputs.mode }}
+      topics: ${{ steps.set-topics.outputs.topics }}
+    steps:
+      - name: Determine digest mode
+        id: set-mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "$(date +%u)" = "1" ] && [ "${{ github.event.schedule }}" = "0 12 * * 1" ]; then
+            echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set research topics
+        id: set-topics
+        run: |
+          DEFAULT_TOPICS='["agentic modeling and multi-agent systems","construction tech and AI automation","LLM orchestration and tool use patterns"]'
+          
+          if [ -n "${{ inputs.extra_topics }}" ]; then
+            # Convert comma-separated to JSON array
+            EXTRA=$(echo '${{ inputs.extra_topics }}' | python3 -c "
+          import sys, json
+          topics = [t.strip() for t in sys.stdin.read().split(',') if t.strip()]
+          print(json.dumps(topics))
+          ")
+            echo "topics=$EXTRA" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.topic }}" ]; then
+            echo 'topics=["${{ inputs.topic }}"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "topics=$DEFAULT_TOPICS" >> "$GITHUB_OUTPUT"
+          fi
+
+  generate-digest:
+    needs: determine-mode
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        topic: ${{ fromJson(needs.determine-mode.outputs.topics) }}
+      max-parallel: 3
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js (for openclaw)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install openclaw
+        run: npm install -g @anthropics/openclaw || npm install -g openclaw
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate digest
+        id: digest
+        env:
+          MODE: ${{ needs.determine-mode.outputs.mode }}
+          TOPIC: ${{ matrix.topic }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          SAFE_TOPIC=$(echo "$TOPIC" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | head -c 40)
+          
+          if [ "$MODE" = "weekly" ]; then
+            OUTPUT_DIR="research/digests/weekly"
+            FILENAME="weekly-${DATE}-${SAFE_TOPIC}.md"
+          else
+            OUTPUT_DIR="research/digests/daily"
+            FILENAME="${DATE}-${SAFE_TOPIC}.md"
+          fi
+          
+          mkdir -p "$OUTPUT_DIR"
+          
+          PROMPT="You are the research-sme. Produce a ${MODE} research digest on: ${TOPIC}.
+          
+          Structure:
+          ## Papers
+          ## Podcasts  
+          ## Videos
+          ## Wiki/Docs
+          ## Key Insights
+          ## Proposed Spikes
+          
+          Use evidence-grader to score sources. Use spike-generator for proposed spikes.
+          Be thorough, cite everything, prefer primary sources."
+          
+          echo "Generating ${MODE} digest for: ${TOPIC}"
+          
+          # Try openclaw first, fall back to direct API call
+          if command -v openclaw &> /dev/null; then
+            openclaw agent --agent research --message "$PROMPT" --thinking low > "${OUTPUT_DIR}/${FILENAME}" 2>&1 || true
+          else
+            # Fallback: use curl with Anthropic API directly
+            python3 - <<'PYEOF'
+          import json, os, sys
+          from urllib.request import Request, urlopen
+          
+          api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          if not api_key:
+              print("No ANTHROPIC_API_KEY set, skipping", file=sys.stderr)
+              sys.exit(0)
+          
+          prompt = os.environ["PROMPT"]
+          req = Request(
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps({
+                  "model": "claude-sonnet-4-20250514",
+                  "max_tokens": 4096,
+                  "messages": [{"role": "user", "content": prompt}]
+              }).encode(),
+              headers={
+                  "Content-Type": "application/json",
+                  "x-api-key": api_key,
+                  "anthropic-version": "2023-06-01"
+              }
+          )
+          with urlopen(req, timeout=120) as resp:
+              body = json.loads(resp.read())
+              text = body.get("content", [{}])[0].get("text", "No response")
+              print(text)
+          PYEOF
+          fi
+          
+          # Verify output
+          if [ -f "${OUTPUT_DIR}/${FILENAME}" ] && [ -s "${OUTPUT_DIR}/${FILENAME}" ]; then
+            echo "digest_path=${OUTPUT_DIR}/${FILENAME}" >> "$GITHUB_OUTPUT"
+            echo "Generated: ${OUTPUT_DIR}/${FILENAME}"
+          else
+            echo "Warning: digest file empty or missing"
+            echo "# ${MODE} digest - ${DATE}" > "${OUTPUT_DIR}/${FILENAME}"
+            echo "Topic: ${TOPIC}" >> "${OUTPUT_DIR}/${FILENAME}"
+            echo "Generation failed - retry needed" >> "${OUTPUT_DIR}/${FILENAME}"
+            echo "digest_path=${OUTPUT_DIR}/${FILENAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract and append spikes to backlog
+        if: steps.digest.outputs.digest_path != ''
+        run: |
+          DIGEST="${{ steps.digest.outputs.digest_path }}"
+          if grep -q "## Proposed Spikes" "$DIGEST" 2>/dev/null; then
+            echo "" >> research/RESEARCH_BACKLOG.md
+            echo "### Spikes from $(date +%Y-%m-%d) — ${{ matrix.topic }}" >> research/RESEARCH_BACKLOG.md
+            sed -n '/## Proposed Spikes/,/^## /p' "$DIGEST" | head -n -1 | tail -n +2 >> research/RESEARCH_BACKLOG.md
+            echo "Appended spikes to backlog"
+          fi
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: ${{ steps.digest.outputs.digest_path }}
+
+  commit-and-notify:
+    needs: [determine-mode, generate-digest]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all digests
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Copy digests to repo
+        run: |
+          # Copy all digest files from artifacts
+          find artifacts/ -name "*.md" -exec cp {} research/digests/ \; 2>/dev/null || true
+          
+          # Also pull latest from the generate jobs
+          git pull --rebase origin main || true
+
+      - name: Commit results
+        run: |
+          git config user.name "research-bot"
+          git config user.email "research-bot@jcw.ai"
+          git add research/ || true
+          
+          MODE="${{ needs.determine-mode.outputs.mode }}"
+          DATE=$(date +%Y-%m-%d)
+          
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "research: ${MODE} digest ${DATE} [automated]"
+            git push origin main
+          fi
+
+      - name: Notify Slack
+        if: env.SLACK_BOT_TOKEN != ''
+        run: |
+          MODE="${{ needs.determine-mode.outputs.mode }}"
+          DATE=$(date +%Y-%m-%d)
+          TOPICS='${{ needs.determine-mode.outputs.topics }}'
+          
+          # Count successful digests
+          DIGEST_COUNT=$(find artifacts/ -name "*.md" 2>/dev/null | wc -l)
+          
+          MESSAGE="Research ${MODE} digest complete (${DATE})\nTopics processed: ${DIGEST_COUNT}\nTopics: ${TOPICS}\nResults committed to main branch."
+          
+          python3 -c "
+          import json
+          from urllib.request import Request, urlopen
+          
+          token = '${{ env.SLACK_BOT_TOKEN }}'
+          channel = '${{ env.SLACK_CHANNEL }}'
+          msg = '${MESSAGE}'.replace('\\\\n', '\n')
+          
+          data = json.dumps({'channel': channel, 'text': msg}).encode()
+          req = Request(
+              'https://slack.com/api/chat.postMessage',
+              data=data,
+              headers={
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'Authorization': f'Bearer {token}'
+              }
+          )
+          with urlopen(req, timeout=15) as resp:
+              body = json.loads(resp.read())
+              print('Slack notification:', 'ok' if body.get('ok') else body.get('error'))
+          "

@@ -1,0 +1,135 @@
+name: Deploy Slack Bot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/slack_bot.py'
+      - 'requirements.slackbot.txt'
+      - 'Dockerfile.slackbot'
+      - 'cloudbuild.slackbot.yaml'
+      - '.github/workflows/deploy-slackbot.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: us-east1
+  SERVICE_NAME: clawdbot-slack
+  IMAGE: us-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/clawdbot/slack-bot
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_B64 }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-east1-docker.pkg.dev --quiet
+
+      - name: Build container
+        run: |
+          docker build \
+            -f Dockerfile.slackbot \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            .
+
+      - name: Push container
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Deploy to Cloud Run (staging)
+        if: inputs.environment != 'production'
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }}-staging \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --no-traffic \
+            --set-env-vars "CLAWDBOT_MODE=http" \
+            --set-secrets "SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_APP_TOKEN=slack-app-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest" \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 60 \
+            --max-instances 2 \
+            --min-instances 0 \
+            --port 8080 \
+            --allow-unauthenticated
+
+      - name: Deploy to Cloud Run (production)
+        if: inputs.environment == 'production'
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --set-env-vars "CLAWDBOT_MODE=http" \
+            --set-secrets "SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_APP_TOKEN=slack-app-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest" \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 60 \
+            --max-instances 5 \
+            --min-instances 1 \
+            --port 8080 \
+            --allow-unauthenticated
+
+      - name: Smoke test
+        if: inputs.environment == 'production'
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.GCP_REGION }} --format 'value(status.url)')
+          echo "Service URL: $SERVICE_URL"
+          
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${SERVICE_URL}/health" || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            echo "Health check passed"
+          else
+            echo "Warning: health check returned $STATUS"
+          fi
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          STATUS="${{ job.status }}"
+          ENV="${{ inputs.environment || 'staging' }}"
+          
+          if [ "$STATUS" = "success" ]; then
+            MSG="Slack bot deployed to ${ENV} successfully (${GITHUB_SHA:0:7})"
+          else
+            MSG="Slack bot deploy to ${ENV} FAILED (${GITHUB_SHA:0:7}) — check Actions logs"
+          fi
+          
+          python3 -c "
+          import json
+          from urllib.request import Request, urlopen
+          token = '${SLACK_BOT_TOKEN}'
+          if not token: exit(0)
+          data = json.dumps({'channel': 'C0AFSUEJ2KY', 'text': '${MSG}'}).encode()
+          req = Request('https://slack.com/api/chat.postMessage', data=data, headers={'Content-Type': 'application/json; charset=utf-8', 'Authorization': f'Bearer {token}'})
+          with urlopen(req, timeout=15) as r: print(json.loads(r.read()).get('ok'))
+          "

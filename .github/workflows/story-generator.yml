@@ -1,0 +1,374 @@
+name: Story Generator at Scale
+
+on:
+  schedule:
+    # Run story generation twice daily: 8 AM and 4 PM EST
+    - cron: '0 13 * * *'
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      topics:
+        description: 'Comma-separated topics for story generation'
+        required: false
+        default: ''
+        type: string
+      depth:
+        description: 'Generation depth (quick, standard, deep)'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+          - quick
+          - standard
+          - deep
+      max_parallel:
+        description: 'Max parallel story generations'
+        required: false
+        default: '5'
+        type: string
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0AFSUEJ2KY' }}
+
+jobs:
+  prepare-topics:
+    runs-on: ubuntu-latest
+    outputs:
+      topics: ${{ steps.topics.outputs.matrix }}
+      depth: ${{ steps.depth.outputs.depth }}
+      run_id: ${{ steps.meta.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set run metadata
+        id: meta
+        run: echo "run_id=story-$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Build topic matrix
+        id: topics
+        run: |
+          if [ -n "${{ inputs.topics }}" ]; then
+            # User-provided topics
+            MATRIX=$(echo '${{ inputs.topics }}' | python3 -c "
+          import sys, json
+          topics = [t.strip() for t in sys.stdin.read().split(',') if t.strip()]
+          print(json.dumps(topics))
+          ")
+          else
+            # Auto-generate from backlog + trending
+            MATRIX=$(python3 - <<'PYEOF'
+          import json, re
+          from pathlib import Path
+
+          topics = []
+
+          # Pull from research backlog (pending spikes)
+          backlog = Path("research/RESEARCH_BACKLOG.md")
+          if backlog.exists():
+              text = backlog.read_text()
+              # Find unchecked items
+              for m in re.finditer(r"- \[ \]\s*(.+)", text):
+                  topic = m.group(1).strip()
+                  if len(topic) > 10:
+                      topics.append(topic)
+                  if len(topics) >= 3:
+                      break
+
+          # Default research verticals if backlog is empty
+          defaults = [
+              "AI agents in construction project management",
+              "multi-agent coordination patterns for autonomous workflows",
+              "LLM-powered research synthesis and evidence grading",
+              "automated CI/CD with AI-driven testing and deployment",
+              "voice-first interfaces for field worker time tracking",
+          ]
+
+          # Fill up to 5 topics
+          for d in defaults:
+              if d not in topics and len(topics) < 5:
+                  topics.append(d)
+
+          print(json.dumps(topics[:5]))
+          PYEOF
+          )
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+      - name: Set depth
+        id: depth
+        run: |
+          DEPTH="${{ inputs.depth || 'standard' }}"
+          echo "depth=$DEPTH" >> "$GITHUB_OUTPUT"
+
+  generate-stories:
+    needs: prepare-topics
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        topic: ${{ fromJson(needs.prepare-topics.outputs.topics) }}
+      max-parallel: ${{ fromJson(inputs.max_parallel || '5') }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate story
+        id: story
+        env:
+          TOPIC: ${{ matrix.topic }}
+          DEPTH: ${{ needs.prepare-topics.outputs.depth }}
+          RUN_ID: ${{ needs.prepare-topics.outputs.run_id }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          SAFE_TOPIC=$(echo "$TOPIC" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g' | head -c 50)
+          OUTPUT_DIR="research/stories/${DATE}"
+          mkdir -p "$OUTPUT_DIR"
+          FILENAME="${SAFE_TOPIC}.md"
+          
+          # Set token limits by depth
+          case "$DEPTH" in
+            quick)   MAX_TOKENS=2048 ;;
+            deep)    MAX_TOKENS=8192 ;;
+            *)       MAX_TOKENS=4096 ;;
+          esac
+          
+          python3 - <<'PYEOF'
+          import json, os, sys
+          from urllib.request import Request, urlopen
+          from datetime import datetime
+          
+          api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          if not api_key:
+              print("No ANTHROPIC_API_KEY, skipping", file=sys.stderr)
+              sys.exit(0)
+          
+          topic = os.environ["TOPIC"]
+          depth = os.environ["DEPTH"]
+          max_tokens = int(os.environ.get("MAX_TOKENS", "4096"))
+          
+          prompt = f"""You are a research story generator for a construction technology company.
+
+          Generate a comprehensive research story on: {topic}
+
+          Depth level: {depth}
+
+          Structure your output as:
+          # {topic}
+
+          ## Executive Summary
+          A 2-3 sentence overview of the key finding or trend.
+
+          ## Background & Context
+          Why this matters for construction technology and AI automation.
+
+          ## Key Findings
+          - Finding 1 with evidence
+          - Finding 2 with evidence
+          - Finding 3 with evidence
+
+          ## Technical Analysis
+          Deeper dive into the technical aspects, implementations, or methodologies.
+
+          ## Industry Impact
+          How this affects construction, project management, or field operations.
+
+          ## Actionable Recommendations
+          Specific next steps or experiments to run.
+
+          ## Sources & References
+          Cite all sources with URLs where possible.
+
+          Be specific, data-driven, and actionable. Cite real sources. 
+          Focus on practical applicability to construction tech and multi-agent systems."""
+
+          req = Request(
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps({
+                  "model": "claude-sonnet-4-20250514",
+                  "max_tokens": max_tokens,
+                  "messages": [{"role": "user", "content": prompt}]
+              }).encode(),
+              headers={
+                  "Content-Type": "application/json",
+                  "x-api-key": api_key,
+                  "anthropic-version": "2023-06-01"
+              }
+          )
+          
+          try:
+              with urlopen(req, timeout=180) as resp:
+                  body = json.loads(resp.read())
+                  text = body.get("content", [{}])[0].get("text", "No response")
+                  
+                  # Get usage stats
+                  usage = body.get("usage", {})
+                  input_tokens = usage.get("input_tokens", 0)
+                  output_tokens = usage.get("output_tokens", 0)
+                  
+                  print(text)
+                  print(f"\n---\nGenerated: {datetime.utcnow().isoformat()}Z", file=sys.stderr)
+                  print(f"Tokens: {input_tokens} in / {output_tokens} out", file=sys.stderr)
+          except Exception as exc:
+              print(f"Error: {exc}", file=sys.stderr)
+              print(f"# {topic}\n\nGeneration failed: {exc}\n\nRetry needed.")
+          PYEOF
+          
+          # Capture output
+          python3 - > "${OUTPUT_DIR}/${FILENAME}" <<'PYEOF2'
+          import json, os, sys
+          from urllib.request import Request, urlopen
+          
+          api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          if not api_key:
+              sys.exit(0)
+          
+          topic = os.environ["TOPIC"]
+          depth = os.environ["DEPTH"]
+          max_tokens = int(os.environ.get("MAX_TOKENS", "4096"))
+          
+          prompt = f"""You are a research story generator for a construction technology company.
+          Generate a comprehensive research story on: {topic}
+          Depth level: {depth}
+          
+          Structure: Executive Summary, Background & Context, Key Findings, Technical Analysis, Industry Impact, Actionable Recommendations, Sources & References.
+          Be specific, data-driven, actionable. Cite real sources. Focus on construction tech and multi-agent systems."""
+          
+          req = Request(
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps({
+                  "model": "claude-sonnet-4-20250514",
+                  "max_tokens": max_tokens,
+                  "messages": [{"role": "user", "content": prompt}]
+              }).encode(),
+              headers={
+                  "Content-Type": "application/json",
+                  "x-api-key": api_key,
+                  "anthropic-version": "2023-06-01"
+              }
+          )
+          
+          try:
+              with urlopen(req, timeout=180) as resp:
+                  body = json.loads(resp.read())
+                  print(body.get("content", [{}])[0].get("text", "Generation failed"))
+          except Exception as e:
+              print(f"# {topic}\n\nFailed: {e}")
+          PYEOF2
+          
+          if [ -s "${OUTPUT_DIR}/${FILENAME}" ]; then
+            echo "story_path=${OUTPUT_DIR}/${FILENAME}" >> "$GITHUB_OUTPUT"
+            echo "story_topic=${TOPIC}" >> "$GITHUB_OUTPUT"
+            WC=$(wc -w < "${OUTPUT_DIR}/${FILENAME}")
+            echo "word_count=${WC}" >> "$GITHUB_OUTPUT"
+            echo "Generated ${WC} words: ${OUTPUT_DIR}/${FILENAME}"
+          else
+            echo "story_path=" >> "$GITHUB_OUTPUT"
+            echo "Generation produced empty output"
+          fi
+
+      - name: Upload story artifact
+        if: steps.story.outputs.story_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: story-${{ strategy.job-index }}
+          path: ${{ steps.story.outputs.story_path }}
+
+  publish-and-notify:
+    needs: [prepare-topics, generate-stories]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all stories
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Organize and commit
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          DEST="research/stories/${DATE}"
+          mkdir -p "$DEST"
+          
+          # Copy story files
+          find artifacts/ -name "*.md" -exec cp {} "$DEST/" \; 2>/dev/null || true
+          
+          # Generate index
+          STORY_COUNT=$(find "$DEST" -name "*.md" | wc -l)
+          
+          cat > "$DEST/INDEX.md" <<EOF
+          # Stories Generated — ${DATE}
+          
+          Run: ${{ needs.prepare-topics.outputs.run_id }}
+          Stories: ${STORY_COUNT}
+          Depth: ${{ needs.prepare-topics.outputs.depth }}
+          
+          ## Stories
+          EOF
+          
+          for f in "$DEST"/*.md; do
+            [ "$(basename "$f")" = "INDEX.md" ] && continue
+            TITLE=$(head -1 "$f" | sed 's/^#\s*//')
+            WC=$(wc -w < "$f")
+            echo "- [${TITLE}]($(basename "$f")) (${WC} words)" >> "$DEST/INDEX.md"
+          done
+          
+          git config user.name "story-bot"
+          git config user.email "story-bot@jcw.ai"
+          git add research/stories/ || true
+          
+          if git diff --cached --quiet; then
+            echo "No stories to commit"
+          else
+            git commit -m "stories: ${STORY_COUNT} stories generated ${DATE} [automated]"
+            git push origin main
+          fi
+
+      - name: Notify Slack
+        if: env.SLACK_BOT_TOKEN != ''
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          RUN_ID="${{ needs.prepare-topics.outputs.run_id }}"
+          TOPICS='${{ needs.prepare-topics.outputs.topics }}'
+          STORY_COUNT=$(find artifacts/ -name "*.md" 2>/dev/null | wc -l)
+          
+          python3 -c "
+          import json
+          from urllib.request import Request, urlopen
+          
+          token = '${{ env.SLACK_BOT_TOKEN }}'
+          channel = '${{ env.SLACK_CHANNEL }}'
+          count = ${STORY_COUNT}
+          run_id = '${RUN_ID}'
+          date = '${DATE}'
+          topics = json.loads('${TOPICS}')
+          topic_list = '\n'.join(f'  - {t}' for t in topics)
+          
+          msg = f'Story generation complete ({date})\nRun: {run_id}\nStories generated: {count}\nTopics:\n{topic_list}\nCommitted to research/stories/{date}/'
+          
+          data = json.dumps({'channel': channel, 'text': msg}).encode()
+          req = Request(
+              'https://slack.com/api/chat.postMessage',
+              data=data,
+              headers={
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'Authorization': f'Bearer {token}'
+              }
+          )
+          try:
+              with urlopen(req, timeout=15) as r:
+                  body = json.loads(r.read())
+                  print('Slack:', 'ok' if body.get('ok') else body.get('error'))
+          except Exception as e:
+              print(f'Slack notification failed: {e}')
+          "

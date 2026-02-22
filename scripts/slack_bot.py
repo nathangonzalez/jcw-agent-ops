@@ -98,6 +98,8 @@ _PENDING_CODE_BY_JOB: Dict[str, Dict[str, str]] = {}
 _CODE_STATUS: Dict[str, Dict[str, str]] = {}
 _PENDING_EXEC: Dict[str, Dict[str, str]] = {}
 _EXEC_STATUS: Dict[str, Dict[str, str]] = {}
+_AGENT_PAUSED: bool = False
+_KILL_CHANNEL: str = ""  # channel where kill was issued, for resume notification
 
 
 def _parse_repo_map(raw: str) -> Dict[str, str]:
@@ -471,6 +473,23 @@ def queue_tick():
             log_line(f"queue_tick error: {exc}")
         time.sleep(QUEUE_INTERVAL)
 
+def handle_kill_switch(text: str, channel: str, user: str) -> Optional[str]:
+    """Check for /kill or STOP ALL commands. Returns response if handled, None otherwise."""
+    global _AGENT_PAUSED, _KILL_CHANNEL
+    t = (text or "").strip().lower()
+    if t in ("/kill", "stop all", "/stop", "kill"):
+        _AGENT_PAUSED = True
+        _KILL_CHANNEL = channel
+        log_line(f"KILL SWITCH activated by {user} in {channel}")
+        return "🛑 Agent stopped. All operations paused. Send `resume` or `/resume` to continue."
+    if t in ("resume", "/resume", "start", "/start") and _AGENT_PAUSED:
+        _AGENT_PAUSED = False
+        log_line(f"Agent RESUMED by {user} in {channel}")
+        return "✅ Agent resumed. Operations continuing."
+    if t == "status" and _AGENT_PAUSED:
+        return "🛑 Agent is PAUSED. Send `resume` to continue."
+    return None
+
 def maybe_local_response(text: str) -> Optional[str]:
     t = (text or "").lower()
     if not t:
@@ -839,12 +858,19 @@ else:
 def on_app_mention(event, say):
     if event.get("bot_id"):
         return
-    if DM_ONLY:
-        log_line("app_mention ignored (DM-only mode)")
-        return
     text = normalize_text(event.get("text", ""))
     user = event.get("user", "")
     channel = event.get("channel", "")
+    # Kill switch check — always process, even when paused
+    kill_response = handle_kill_switch(text, channel, user)
+    if kill_response:
+        say(kill_response)
+        return
+    if _AGENT_PAUSED:
+        return  # Silently ignore all messages while paused
+    if DM_ONLY:
+        log_line("app_mention ignored (DM-only mode)")
+        return
     if not is_allowed(user, channel, event.get("channel_type", "")):
         log_line(f"app_mention blocked for user {user} in {channel}")
         return
@@ -902,6 +928,13 @@ def on_message(event, say):
     text = normalize_text(event.get("text", ""))
     user = event.get("user", "")
     channel = event.get("channel", "")
+    # Kill switch check — always process, even when paused
+    kill_response = handle_kill_switch(text, channel, user)
+    if kill_response:
+        say(kill_response)
+        return
+    if _AGENT_PAUSED:
+        return  # Silently ignore all messages while paused
 
     # DM flow
     relay_key_payload = {"channel_type": channel_type, "channel_id": channel, "user_id": user}

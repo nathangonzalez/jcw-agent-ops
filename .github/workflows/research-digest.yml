@@ -133,12 +133,17 @@ jobs:
           
           echo "Generating ${MODE} digest for: ${TOPIC}"
           
+          # Export PROMPT so Python subprocess can access it
+          export PROMPT
+          
           # Try openclaw first, fall back to direct API call
           if command -v openclaw &> /dev/null; then
             openclaw agent --agent research --message "$PROMPT" --thinking low > "${OUTPUT_DIR}/${FILENAME}" 2>&1 || true
-          else
-            # Fallback: use curl with Anthropic API directly
-            python3 - <<'PYEOF'
+          fi
+          
+          # If openclaw didn't produce output, use Anthropic API directly
+          if [ ! -s "${OUTPUT_DIR}/${FILENAME}" ]; then
+            python3 - > "${OUTPUT_DIR}/${FILENAME}" <<'PYEOF'
           import json, os, sys
           from urllib.request import Request, urlopen
           

@@ -1019,20 +1019,60 @@ def on_slash_claw(ack, body, respond):
         log_line("slash reply suppressed (duplicate)")
 
 
+def _extract_task_from_blocks(blocks: list) -> str:
+    """Extract task text from approval card blocks (for orphan cards)."""
+    for block in (blocks or []):
+        if block.get("type") == "section":
+            text_obj = block.get("text", {})
+            raw = text_obj.get("text", "")
+            for line in raw.split("\n"):
+                line = line.strip()
+                if line.lower().startswith("task:"):
+                    return line.split(":", 1)[1].strip()
+            cleaned = re.sub(r"\*+", "", raw).strip()
+            if cleaned:
+                return cleaned
+    return "Unknown task"
+
+
 @app.action("claw_approve")
 def on_claw_approve(ack, body):
     ack()
+    user_id = (body.get("user") or {}).get("id", "unknown")
     message = body.get("message", {})
     message_ts = message.get("ts")
-    if not message_ts or message_ts not in _PENDING_APPROVALS:
+    channel_info = body.get("channel", {})
+    channel = channel_info.get("id") if isinstance(channel_info, dict) else str(channel_info or "")
+    log_line(f"claw_approve clicked by {user_id} ts={message_ts} channel={channel}")
+    if message_ts and message_ts in _PENDING_APPROVALS:
+        payload = _PENDING_APPROVALS.pop(message_ts)
+        task = payload.get("task") or "Unknown task"
+        channel = payload.get("channel") or channel
+        requester = payload.get("requester", "unknown")
+    else:
+        task = _extract_task_from_blocks(message.get("blocks", []))
+        requester = "external"
+        log_line(f"claw_approve: orphan card, extracted task={task}")
+    if not channel:
+        log_line("claw_approve: no channel, aborting")
         return
-    payload = _PENDING_APPROVALS.pop(message_ts)
-    task = payload["task"]
-    channel = payload["channel"]
-    requester = payload.get("requester", "unknown")
     try:
         mark_queue_status(task, "approved")
         raw_task = _strip_queue_prefix(task)
+        if message_ts:
+            try:
+                app.client.chat_update(
+                    channel=channel,
+                    ts=message_ts,
+                    text=f"Approved: {task}",
+                    blocks=[
+                        {"type": "section", "text": {"type": "mrkdwn", "text": f"✅ *Approved*\n{task}"}},
+                        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Approved by <@{user_id}> | Requested by <@{requester}>"}]},
+                    ],
+                )
+                log_line("claw_approve: card updated")
+            except Exception as exc:
+                log_line(f"claw_approve: card update failed: {exc}")
         if raw_task.lower().startswith("exec:"):
             command = raw_task.split(":", 1)[1].strip()
             repo, cmd = extract_exec_target(f"exec {command}")
@@ -1041,64 +1081,54 @@ def on_claw_approve(ack, body):
                 cwd = Path(REPO_MAP.get(repo.lower(), "")).expanduser()
             status, output = run_exec_command(cmd, cwd=cwd)
             response = f"Exec {status}:\n{output}"
+        elif DISABLE_OPENCLAW:
+            response = f"✅ Approved: {raw_task}\n(OpenClaw disabled — approval logged.)"
         else:
             response = sanitize_response(run_openclaw(f"APPROVED TASK: {raw_task}"))
-        try:
-            app.client.chat_update(
-                channel=channel,
-                ts=message_ts,
-                text=f"Approved: {task}",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"✅ *Approved*\n{task}",
-                        },
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {"type": "mrkdwn", "text": f"Approved by <@{body.get('user', {}).get('id', 'unknown')}> | Requested by <@{requester}>"}
-                        ],
-                    },
-                ],
-            )
-        except Exception as exc:
-            log_line(f"approval update failed: {exc}")
+        app.client.chat_postMessage(channel=channel, text=truncate(response))
+        log_line("claw_approve: response posted")
     except Exception as exc:
-        response = f"Clawdbot error: {exc}"
-    app.client.chat_postMessage(channel=channel, text=truncate(response))
+        log_line(f"claw_approve error: {exc}")
+        try:
+            app.client.chat_postMessage(channel=channel, text=f"Approval error: {exc}")
+        except Exception:
+            pass
 
 
 @app.action("claw_reject")
 def on_claw_reject(ack, body):
     ack()
+    user_id = (body.get("user") or {}).get("id", "unknown")
     message = body.get("message", {})
     message_ts = message.get("ts")
+    channel_info = body.get("channel", {})
+    channel = channel_info.get("id") if isinstance(channel_info, dict) else str(channel_info or "")
+    log_line(f"claw_reject clicked by {user_id} ts={message_ts} channel={channel}")
     if message_ts and message_ts in _PENDING_APPROVALS:
         payload = _PENDING_APPROVALS.pop(message_ts, None)
-        if payload:
-            mark_queue_status(payload.get("task", ""), "rejected")
-            task = payload.get("task", "")
-            channel = payload.get("channel", "")
-            try:
-                app.client.chat_update(
-                    channel=channel,
-                    ts=message_ts,
-                    text=f"Rejected: {task}",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"❌ *Rejected*\n{task}",
-                            },
-                        }
-                    ],
-                )
-            except Exception as exc:
-                log_line(f"rejection update failed: {exc}")
+        task = (payload or {}).get("task", "Unknown task")
+        channel = (payload or {}).get("channel") or channel
+    else:
+        task = _extract_task_from_blocks(message.get("blocks", []))
+        log_line(f"claw_reject: orphan card, extracted task={task}")
+    if not channel:
+        log_line("claw_reject: no channel, aborting")
+        return
+    mark_queue_status(task, "rejected")
+    if message_ts:
+        try:
+            app.client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text=f"Rejected: {task}",
+                blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"❌ *Rejected*\n{task}"}},
+                    {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Rejected by <@{user_id}>"}]},
+                ],
+            )
+            log_line("claw_reject: card updated")
+        except Exception as exc:
+            log_line(f"claw_reject: card update failed: {exc}")
 
 
 @app.action("code_apply")

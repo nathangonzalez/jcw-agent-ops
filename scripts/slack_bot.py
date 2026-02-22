@@ -225,9 +225,9 @@ def run_openclaw(user_text: str) -> str:
     elapsed = time.monotonic() - start
     if proc.returncode != 0:
         log_line(f"openclaw error ({proc.returncode}) in {elapsed:.1f}s")
-        return f"Clawdbot error: {proc.stderr.strip() or 'unknown error'}"
+        return f"Clawdbot error: {(proc.stderr or '').strip() or 'unknown error'}"
     log_line(f"openclaw ok in {elapsed:.1f}s")
-    output = proc.stdout.strip()
+    output = (proc.stdout or "").strip()
     log_anthropic_usage(prompt, output)
     return output
 

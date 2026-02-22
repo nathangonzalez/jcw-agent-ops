@@ -80,6 +80,7 @@ QUEUE_PATH = Path(os.environ.get("CLAWDBOT_QUEUE_PATH", str(REPO_ROOT / "tasks" 
 QUEUE_CHANNEL = os.environ.get("CLAWDBOT_QUEUE_CHANNEL", "").strip()
 QUEUE_INTERVAL = int(os.environ.get("CLAWDBOT_QUEUE_INTERVAL", "3600"))
 ANTHROPIC_USAGE_ENABLED = os.environ.get("CLAWDBOT_ANTHROPIC_USAGE", "true").strip().lower() in {"1", "true", "yes"}
+APPROVED_TASKS_PATH = Path(os.environ.get("CLAWDBOT_APPROVED_TASKS", str(REPO_ROOT / "tasks" / "approved_tasks.json")))
 
 LOG_LEVEL = os.environ.get("CLAWDBOT_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -174,6 +175,34 @@ def _strip_queue_prefix(task: str) -> str:
     cleaned = re.sub(r"^\s*\[Q-[^\]]+\]\s*", "", task).strip()
     return cleaned
 
+
+def _load_approved_tasks() -> list:
+    if not APPROVED_TASKS_PATH.exists():
+        return []
+    try:
+        return json.loads(APPROVED_TASKS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_approved_tasks(items: list) -> None:
+    APPROVED_TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    APPROVED_TASKS_PATH.write_text(json.dumps(items, indent=2), encoding="utf-8")
+
+def enqueue_approved_task(task: str, approved_by: str, channel: str) -> dict:
+    """Write an approved task to the file for Cline to pick up."""
+    items = _load_approved_tasks()
+    entry = {
+        "id": f"T-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+        "task": task,
+        "status": "approved",
+        "approved_by": approved_by,
+        "channel": channel,
+        "approved_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    items.append(entry)
+    _save_approved_tasks(items)
+    log_line(f"enqueued approved task: {entry['id']} — {task}")
+    return entry
 
 def mark_queue_status(task: str, status: str) -> None:
     qid = _extract_queue_id(task)
@@ -1081,10 +1110,10 @@ def on_claw_approve(ack, body):
                 cwd = Path(REPO_MAP.get(repo.lower(), "")).expanduser()
             status, output = run_exec_command(cmd, cwd=cwd)
             response = f"Exec {status}:\n{output}"
-        elif DISABLE_OPENCLAW:
-            response = f"✅ Approved: {raw_task}\n(OpenClaw disabled — approval logged.)"
         else:
-            response = sanitize_response(run_openclaw(f"APPROVED TASK: {raw_task}"))
+            # Enqueue for Cline to pick up
+            entry = enqueue_approved_task(raw_task, user_id, channel)
+            response = f"Approved and queued for Cline: {entry['id']}\nTask: {raw_task}"
         app.client.chat_postMessage(channel=channel, text=truncate(response))
         log_line("claw_approve: response posted")
     except Exception as exc:

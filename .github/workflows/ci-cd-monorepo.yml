@@ -1,0 +1,310 @@
+# Monorepo CI/CD - path-filtered matrix builds with patch/promote deploy
+name: Monorepo CI/CD
+
+on:
+  push:
+    branches: [main, 'release/**', 'feature/**', 'hotfix/**']
+    paths:
+      - 'services/**'
+      - 'packages/**'
+      - '.github/workflows/ci-cd-monorepo.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/**'
+      - 'packages/**'
+      - '.github/workflows/ci-cd-monorepo.yml'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+jobs:
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+      any_changed: ${{ steps.set-matrix.outputs.any_changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            payroll:
+              - 'services/payroll/**'
+              - 'packages/shared/**'
+            estimating:
+              - 'services/estimating/**'
+              - 'packages/shared/**'
+            financials:
+              - 'services/financials/**'
+              - 'packages/shared/**'
+            suite-shell:
+              - 'services/suite-shell/**'
+              - 'packages/shared/**'
+              - 'packages/ui/**'
+
+      - name: Build service matrix from filter results
+        id: set-matrix
+        run: |
+          SERVICES='[]'
+          for svc in payroll estimating financials suite-shell; do
+            val=$(echo '${{ toJson(steps.filter.outputs) }}' | jq -r ".$svc")
+            if [ "$val" = "true" ]; then
+              SERVICES=$(echo "$SERVICES" | jq -c ". + [\"$svc\"]")
+            fi
+          done
+          echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+          if [ "$SERVICES" = "[]" ]; then
+            echo "any_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Test ${{ matrix.service }}
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: hashFiles(format('services/{0}/package.json', matrix.service)) != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+
+      - name: Setup Python
+        if: hashFiles(format('services/{0}/requirements.txt', matrix.service)) != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements.txt
+
+      - name: Install (Node)
+        if: hashFiles(format('services/{0}/package.json', matrix.service)) != ''
+        run: npm ci
+
+      - name: Install (Python)
+        if: hashFiles(format('services/{0}/requirements.txt', matrix.service)) != ''
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: |
+          if [ -f package.json ] && jq -e '.scripts.lint' package.json >/dev/null 2>&1; then
+            npm run lint
+          elif [ -f requirements.txt ] && pip show ruff >/dev/null 2>&1; then
+            ruff check .
+          else
+            echo No linter configured
+          fi
+
+      - name: Run tests
+        run: |
+          if [ -f package.json ] && jq -e '.scripts.test' package.json >/dev/null 2>&1; then
+            npm test
+          elif [ -f ci.sh ]; then
+            chmod +x ci.sh && ./ci.sh
+          elif [ -f pytest.ini ] || [ -f setup.cfg ] || [ -d tests ]; then
+            pip install pytest 2>/dev/null || true
+            python -m pytest -v
+          else
+            echo No test runner found
+          fi
+
+  build-deploy:
+    name: Deploy ${{ matrix.service }} (preview)
+    needs: [detect-changes, test]
+    if: needs.detect-changes.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    environment:
+      name: preview-${{ matrix.service }}
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: deploy-${{ matrix.service }}-${{ github.head_ref || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_JSON }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Generate version tag
+        id: version
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          VERSION="pr-${SHORT_SHA}-${{ github.run_number }}"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: **$VERSION**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy to App Engine (no-promote)
+        id: deploy
+        run: |
+          SERVICE_DIR="services/${{ matrix.service }}"
+          APP_YAML="${SERVICE_DIR}/app.yaml"
+
+          if [ ! -f "$APP_YAML" ]; then
+            echo "::warning::No app.yaml - skipping deploy"
+            exit 0
+          fi
+
+          gcloud app deploy "$APP_YAML" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --version="${{ steps.version.outputs.tag }}" \
+            --no-promote \
+            --quiet
+
+          VERSION_URL="https://${{ steps.version.outputs.tag }}-dot-${{ matrix.service }}-dot-${{ env.GCP_PROJECT_ID }}.appspot.com"
+          echo "url=$VERSION_URL" >> "$GITHUB_OUTPUT"
+          echo "Preview: $VERSION_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment PR with preview URL
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.url }}';
+            if (!url) return;
+            const body = [
+              '### Preview deployed: **${{ matrix.service }}**',
+              '',
+              '_Auto-deployed by CI. Not serving production traffic._'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+  promote:
+    name: Promote ${{ matrix.service }} to production
+    needs: [detect-changes, build-deploy]
+    if: >-
+      github.ref == 'refs/heads/main'
+      && github.event_name == 'push'
+      && needs.detect-changes.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    environment:
+      name: production
+      url: ${{ steps.promote.outputs.url }}
+    concurrency:
+      group: promote-${{ matrix.service }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_JSON }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Resolve version tag
+        id: version
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          VERSION="pr-${SHORT_SHA}-${{ github.run_number }}"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Promote version to serving
+        id: promote
+        run: |
+          gcloud app services set-traffic "${{ matrix.service }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --splits="${{ steps.version.outputs.tag }}=1" \
+            --quiet
+
+          PROD_URL="https://${{ matrix.service }}-dot-${{ env.GCP_PROJECT_ID }}.appspot.com"
+          echo "url=$PROD_URL" >> "$GITHUB_OUTPUT"
+          echo "### Promoted to production" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    name: Cleanup old versions
+    needs: promote
+    if: always() && needs.promote.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_JSON }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Delete stale versions (keep newest 5)
+        run: |
+          KEEP=5
+          for SERVICE in payroll estimating financials suite-shell; do
+            echo "Cleaning $SERVICE..."
+            VERSIONS=$(gcloud app versions list \
+              --service="$SERVICE" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --sort-by="~version.createTime" \
+              --format="value(version.id)" 2>/dev/null || true)
+
+            if [ -z "$VERSIONS" ]; then
+              echo "  No versions found"
+              continue
+            fi
+
+            COUNT=0
+            while IFS= read -r ver; do
+              COUNT=$((COUNT + 1))
+              if [ $COUNT -gt $KEEP ]; then
+                echo "  Deleting $SERVICE/$ver"
+                gcloud app versions delete "$ver" \
+                  --service="$SERVICE" \
+                  --project="${{ env.GCP_PROJECT_ID }}" \
+                  --quiet 2>/dev/null || true
+              fi
+            done <<< "$VERSIONS"
+          done
+          echo "Cleanup complete" >> "$GITHUB_STEP_SUMMARY"

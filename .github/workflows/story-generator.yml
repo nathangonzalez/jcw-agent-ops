@@ -71,7 +71,7 @@ jobs:
           # Pull from research backlog (pending spikes)
           backlog = Path("research/RESEARCH_BACKLOG.md")
           if backlog.exists():
-              text = backlog.read_text()
+              text = backlog.read_text(encoding="utf-8", errors="replace")
               # Find unchecked items
               for m in re.finditer(r"- \[ \]\s*(.+)", text):
                   topic = m.group(1).strip()

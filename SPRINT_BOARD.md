@@ -10,9 +10,15 @@
 ---
 
 **Ready**
-- Infra: Draft monorepo directory layout under `services/` with payroll, estimating, financials, suite-shell. Acceptance: repo layout doc + directories created.
+- Ops Agent (Relay): Stabilize Slack Relay. Ensure 100% reliable chat interface via Slack, fixing missing messages. Acceptance: Chatting with @jcw_service works reliably without dropping context.
 - Product: Build suite-shell skeleton UI with app buttons and routing stub. Acceptance: app dock renders and routes to placeholder pages.
-- Research: Verify sources and convert 5 spikes into full spike docs with evidence. Acceptance: 5 spike files in `research/spikes/`.
+
+**Backlog (Needs Refinement)**
+- Infra: Office Server Cloud Backup — Install rclone on office server, configure nightly sync to GCS bucket `gs://jcw-office-backup/`, schedule via Windows Task Scheduler. Acceptance: nightly backup runs, QuickBooks + shared files in GCS, restore tested.
+- Infra: Migrate Shared Files to Google Drive — Move office shared folders to a Google Workspace Shared Drive. Staff accesses via browser/Drive app, no VPN needed for files. Acceptance: all shared folders on Google Drive, staff trained, old server shares read-only.
+- Infra: QuickBooks Migration Assessment — Evaluate QB Desktop → QB Online migration path. Document data migration steps, cost impact, training needs. Acceptance: decision doc with recommendation + timeline.
+- Infra: Labor Timekeeper to Persistent VM — Move labor-timekeeper from App Engine (ephemeral SQLite) to GCE VM with persistent disk + Docker. Acceptance: app runs on VM, DB survives deploys, automated backup to GCS.
+- Ops Agent (24/7): VM Agent Hardening — Cline running on clawbot-ops via VS Code Tunnel with .clinerules guardrails. Heartbeat checks, spending caps, kill switch via Slack. Acceptance: agent runs 24/7, responds to /kill, stays within $5/day budget.
 
 **In Progress**
 - Infra: Implement GitHub Actions matrix workflow with path filters and App Engine patch/promote per service. Acceptance: `infra/ci-cd-monorepo.yml` added.
@@ -28,6 +34,11 @@
 - None
 
 **Done**
+- Finance: Billing = Payroll Logic Parity — DB-managed `client_bill_rate` column, `buildBillingRatesMap()` replaces hardcoded rates (commit `0d3eb72`, 2026-02-22).
+- Finance: Timesheet Formatting Fixes — consistent borders, spacing, Boban gap fixed (commit `89eced8`, 2026-02-22).
+- Product: JCW Website Redesign — design brief + sitemap published (`docs/JCW_WEBSITE_REDESIGN_BRIEF.md`, commit `b0a41dd`, 2026-02-22).
+- Infra: Monorepo directory layout — `services/` dirs + READMEs created (2026-02-22).
+- Research: 5 spike docs verified and published to `research/spikes/` (2026-02-22).
 - Finance: Ledger taxonomy v1 published (`finance/ledger_taxonomy_v1.md`).
 - Finance: Manual review queue spec published (`finance/manual_review_queue.md`).
 - Finance: Cash flow phase mapping published (`finance/cash_flow_phase_mapping.md`).

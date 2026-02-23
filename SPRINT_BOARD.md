@@ -1,11 +1,12 @@
 # Sprint Board
 
-**Lane Summaries (2026-02-20)**
-- Infra Lane: Updated monorepo CI/CD plan with path filters, matrix builds, patch deploy, and manual promote for App Engine services (minimal YAML outline ready).
+**Lane Summaries (2026-02-23)**
+- Infra Lane: CI/CD monorepo workflow shipped. QB Migration Assessment and Labor Timekeeper VM Migration plans complete.
 - Product Lane: Suite-shell UX draft with top bar + left rail app dock, routing, and lazy module loading.
-- Finance Lane: Ledger taxonomy v1, manual review triggers, and cash flow phase mapping by construction phase (expanded detail).
-- Scout Lane: Repo inventory refreshed; still only partially populated and needs crawl of all JCW repos.
-- Research Lane: 5 agentic modeling spikes drafted; sources require verification before adoption.
+- Finance Lane: Billing parity, timesheet fixes shipped. Ledger taxonomy, review queue, cash flow mapping published.
+- Scout Lane: Repo inventory COMPLETE — all 19 repos crawled with stack, deploy target, risks.
+- Ops Lane: Slack relay stabilization plan with 9 fixes documented. VM Agent hardening partially complete (tunnel + Cline running).
+- Research Lane: Story generator + research digest workflows running on schedule.
 
 ---
 
@@ -16,13 +17,11 @@
 **Backlog (Needs Refinement)**
 - Infra: Office Server Cloud Backup — Install rclone on office server, configure nightly sync to GCS bucket `gs://jcw-office-backup/`, schedule via Windows Task Scheduler. Acceptance: nightly backup runs, QuickBooks + shared files in GCS, restore tested.
 - Infra: Migrate Shared Files to Google Drive — Move office shared folders to a Google Workspace Shared Drive. Staff accesses via browser/Drive app, no VPN needed for files. Acceptance: all shared folders on Google Drive, staff trained, old server shares read-only.
-- Infra: QuickBooks Migration Assessment — Evaluate QB Desktop → QB Online migration path. Document data migration steps, cost impact, training needs. Acceptance: decision doc with recommendation + timeline.
-- Infra: Labor Timekeeper to Persistent VM — Move labor-timekeeper from App Engine (ephemeral SQLite) to GCE VM with persistent disk + Docker. Acceptance: app runs on VM, DB survives deploys, automated backup to GCS.
-- Ops Agent (24/7): VM Agent Hardening — Cline running on clawbot-ops via VS Code Tunnel with .clinerules guardrails. Heartbeat checks, spending caps, kill switch via Slack. Acceptance: agent runs 24/7, responds to /kill, stays within $5/day budget.
 
 **In Progress**
-- Infra: Implement GitHub Actions matrix workflow with path filters and App Engine patch/promote per service. Acceptance: `infra/ci-cd-monorepo.yml` added.
-- Scout: Create repo inventory and populate all JCW repos (refreshed; still partial). Acceptance: table with stack, deploy, datastore, owners, risks.
+- Infra: Labor Timekeeper to Persistent VM — Migration plan written (`docs/labor_timekeeper_vm_migration.md`). Next: implement Docker changes and deploy. Acceptance: app runs on VM, DB survives deploys.
+- Ops Agent (Relay): Stabilization plan written (`docs/slack_relay_stabilization.md`). Next: implement 9 code fixes. Acceptance: reliable Slack relay.
+- Ops Agent (24/7): VM Agent Hardening — Tunnel running, Cline installed, .clinerules in place. Next: heartbeat checks, spending monitoring. Acceptance: agent runs 24/7, responds to /kill.
 - Ops Agent (Dashboard): Ship suite ops dashboard `/suite` with sprint/backlog/ops panels. Acceptance: `/suite` loads with live data.
 - Ops Agent (Suite Shell): JCW app store UI (app cards + routing links). Acceptance: app grid renders from `/api/apps`.
 - Ops Agent (Approvals): Approval queue + scheduled Slack prompts. Acceptance: pending approvals auto-post to Slack with buttons.
@@ -46,3 +45,9 @@
 - Product: Suite-shell UX spec drafted (`product/suite_shell_spec.md`).
 - Scout: Initial repo inventory drafted (`inventory/repo_inventory.md`).
 - Scout: Repo inventory refreshed (`inventory/repo_inventory.md`).
+- Scout: Repo inventory COMPLETE — all 19 repos crawled with stack, deploy, datastore, risks (`inventory/repo_inventory.md`, commit `f562cca`, 2026-02-23).
+- Infra: QuickBooks Migration Assessment — QBO Plus recommended, 4-phase timeline, construction-specific analysis (`docs/QUICKBOOKS_MIGRATION_ASSESSMENT.md`, commit `f562cca`, 2026-02-23).
+- Infra: CI/CD Monorepo Workflow — 5-job pipeline with path filters, matrix builds, no-promote deploy, manual promote gate (`.github/workflows/ci-cd-monorepo.yml`, commit `f562cca`, 2026-02-23).
+- Infra: Labor Timekeeper VM Migration Plan — Docker config, 4-phase migration, backup strategy, rollback plan (`docs/labor_timekeeper_vm_migration.md`, commit `8286093`, 2026-02-23).
+- Ops: Slack Relay Stabilization Plan — 9 reliability issues identified with code-level fixes (`docs/slack_relay_stabilization.md`, commit `f562cca`, 2026-02-23).
+- Ops: VM Agent Hardening (partial) — VS Code Tunnel running, Cline installed, .clinerules + TRAINING.md published (2026-02-23).

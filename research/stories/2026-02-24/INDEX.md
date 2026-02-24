@@ -1,12 +1,12 @@
 # Stories Generated — 2026-02-24
 
-Run: story-20260224-133602
-Stories: 5
+Run: story-20260224-210739
+Stories: 6
 Depth: standard
 
 ## Stories
-- [AI Agents in Construction Project Management: A Comprehensive Research Analysis](ai-agents-in-construction-project-management.md) (1781 words)
-- [Automated CI/CD with AI-Driven Testing and Deployment in Construction Technology: A Research Analysis](automated-cicd-with-ai-driven-testing-and-deployme.md) (2049 words)
-- [LLM-Powered Research Synthesis and Evidence Grading in Construction Technology](llm-powered-research-synthesis-and-evidence-gradin.md) (1991 words)
-- [Multi-Agent Coordination Patterns for Autonomous Workflows in Construction Technology](multi-agent-coordination-patterns-for-autonomous-w.md) (1510 words)
-- [Voice-First Interfaces for Field Worker Time Tracking: A Construction Technology Research Report](voice-first-interfaces-for-field-worker-time-track.md) (1420 words)
+- [AI agents in construction project management](ai-agents-in-construction-project-management.md) (13 words)
+- [automated CI/CD with AI-driven testing and deployment](automated-cicd-with-ai-driven-testing-and-deployme.md) (14 words)
+- [LLM-powered research synthesis and evidence grading](llm-powered-research-synthesis-and-evidence-gradin.md) (13 words)
+- [multi-agent coordination patterns for autonomous workflows](multi-agent-coordination-patterns-for-autonomous-w.md) (13 words)
+- [voice-first interfaces for field worker time tracking](voice-first-interfaces-for-field-worker-time-track.md) (14 words)
